@@ -22,13 +22,16 @@ cross-domain saga/workflow.
 - Idempotency and durable outbox handling where the Clinical contract requires them.
 
 Keep dependency and event payloads limited to the published contracts. No service reads another
-bounded context's database.
+bounded context's database. Schema changes, validators, migrations and development seeds belong
+exclusively in [`dlc-clinical-db`](https://github.com/code-corhuila/dlc-clinical-db), never in
+this API repository.
 
 ## Documentation
 
 The authoritative specifications and governance live in
 [`dlc-docs`](https://github.com/code-corhuila/dlc-docs). Read the Clinical scope, the service
-catalog, integration rules and repository/PR regulations before implementing a use case.
+catalog, integration rules and repository/PR regulations before implementing a use case. The
+published Clinical contracts define the operations that require idempotency and outbox handling.
 
 ## Branching
 
