@@ -21,6 +21,63 @@ cross-domain saga/workflow.
 - REST contracts documented as OpenAPI and protected with the platform JWT boundary.
 - Idempotency and durable outbox handling where the Clinical contract requires them.
 
+## Bootstrap layout and local setup
+
+This repository starts from the Go layout required by the course API annex:
+
+```text
+cmd/clinical-api/                 composition root and process lifecycle
+internal/domain/model/            entities, value objects and invariants; no infrastructure imports
+internal/application/port/in/     use-case interfaces and commands/queries
+internal/application/port/out/    repository, clock, ID, authorization and outbox ports
+internal/application/usecase/     use-case implementations
+internal/adapter/in/httpapi/      HTTP routes, auth, correlation and error translation
+internal/adapter/out/persistence/ MongoDB adapters only; never migrations
+internal/config/                  runtime configuration read at the composition root
+deploy/                           container build and local API composition
+```
+
+The bootstrap intentionally exposes only unauthenticated `GET /health`. Clinical routes are
+added contract-first through input ports, then use cases, and finally HTTP/Mongo adapters. A
+handler must never access MongoDB directly, and domain/application packages must not import an
+HTTP framework, the MongoDB driver or environment configuration.
+
+### Local prerequisites
+
+- Go 1.26.
+- Docker Desktop only when running the containerized API or the separately owned Clinical MongoDB
+  artifact.
+- A local copy of the variables in `.env.example` as `.env`; never commit it.
+
+```powershell
+Copy-Item .env.example .env
+go test ./...
+go vet ./...
+docker compose -f deploy/compose.yml up --build
+```
+
+`dlc-clinical-db` owns MongoDB, Liquibase, validators, indexes, roles and development data. This
+API repository only consumes its connection settings through configuration once the persistence
+adapter is implemented; it never runs migrations.
+
+`deploy/compose.yml` joins the external `platform` network created by `dlc-infra` and exposes
+port 8080 only to that network. It deliberately does not publish a host port: external traffic
+must enter through `dlc-api-gateway`. The container runs as a non-root user with a read-only root
+filesystem, dropped Linux capabilities, a writable `/tmp` only, and a `/health` healthcheck.
+For an isolated container verification, build it and inspect its health; do not publish it as a
+replacement for the gateway path.
+
+### Runtime conventions
+
+- `GET /health` is public. All future Clinical routes validate RS256 JWTs in this service, even
+  when the gateway has already checked a token.
+- `X-Correlation-Id` is accepted or generated and returned in every current HTTP response.
+- The composition root declares the initial server limits: 5 s header read, 15 s write, 60 s idle
+  and 20 s graceful shutdown.
+- The durable idempotency/outbox implementation is deferred until the published contract and
+  database migration changes are approved. It must be modelled as outbound ports and implemented
+  atomically with Clinical writes; no in-memory production substitute is permitted.
+
 Keep dependency and event payloads limited to the published contracts. No service reads another
 bounded context's database. Schema changes, validators, migrations and development seeds belong
 exclusively in [`dlc-clinical-db`](https://github.com/code-corhuila/dlc-clinical-db), never in
