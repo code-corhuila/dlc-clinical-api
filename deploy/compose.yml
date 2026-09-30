@@ -1,3 +1,5 @@
+name: dlc-clinical-api
+
 services:
   clinical-api:
     image: dlc-clinical-api:local
