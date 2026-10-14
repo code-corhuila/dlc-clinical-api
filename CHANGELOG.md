@@ -9,10 +9,8 @@ tagged `v<version>` after the merge. Nothing is merged between permanent branche
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-10-14
-
-MVP 2: the repository of the Clinical API (Go, hexagonal) is prepared. No operation of `clinical-service.yaml` is implemented
-in this release. Released through `release/2.0.0`, tagged `v2.0.0` after the merge.
+MVP 2: the repository of the Clinical API (Go, hexagonal) is prepared. No operation of `clinical-service.yaml` is implemented on
+`develop` yet, and there is no release on `main`.
 
 ### Added
 
