@@ -26,6 +26,43 @@ bounded context's database. Schema changes, validators, migrations and developme
 exclusively in [`dlc-clinical-db`](https://github.com/code-corhuila/dlc-clinical-db), never in
 this API repository.
 
+## Run locally
+
+Requires Go 1.26. Variables are listed in [`.env.example`](.env.example); every server limit is
+declared there and zero values are rejected because they mean "no limit".
+
+```bash
+cp .env.example .env
+go run ./cmd/clinical-api
+curl http://localhost:8080/health   # {"status":"UP"}, no token required
+```
+
+Container, attached to the external `platform` network provided by the infrastructure:
+
+```bash
+docker compose -f deploy/compose.yml up --build
+```
+
+## Layout (Anexo C, Go)
+
+```text
+cmd/clinical-api/            composition root and explicit limits
+internal/config/             validated configuration
+internal/domain/model/       entities, value objects, invariants (no framework imports)
+internal/application/        inbound/outbound ports and one use case per operation
+internal/adapter/in/httpapi/ routes, validation, error envelope, correlation, JWT
+internal/adapter/out/        MongoDB persistence and messaging
+deploy/                      Dockerfile and compose (no database, no volume)
+```
+
+## Checks
+
+```bash
+gofmt -l .
+go vet ./...
+go test ./...
+```
+
 ## Documentation
 
 The authoritative specifications and governance live in
