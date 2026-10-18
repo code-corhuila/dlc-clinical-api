@@ -1,0 +1,15 @@
+# Clinical API only. The shared MongoDB instance belongs to dlc-infra-mongo and the
+# Clinical schema to dlc-clinical-db; this file never defines a database or volume.
+name: dlc-clinical-api
+services:
+  clinical-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: ../.env
+    expose: ["8080"]
+    networks: [platform]
+networks:
+  platform:
+    name: ${PLATFORM_NETWORK_NAME:-platform}
+    external: true
