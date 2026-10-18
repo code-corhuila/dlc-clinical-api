@@ -4,12 +4,15 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/in/httpapi"
 	"github.com/code-corhuila/dlc-clinical-api/internal/config"
@@ -29,9 +32,18 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	key, err := loadPublicKey(cfg)
+	if err != nil {
+		return err
+	}
+	router := httpapi.NewRouter(httpapi.Options{
+		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now},
+		Logger:   logger,
+	})
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           http.MaxBytesHandler(httpapi.NewRouter(httpapi.Options{Logger: logger}), cfg.MaxBodyBytes),
+		Handler:           http.MaxBytesHandler(router, cfg.MaxBodyBytes),
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
@@ -62,4 +74,17 @@ func run(logger *slog.Logger) error {
 	defer cancel()
 	logger.Info("clinical-api shutting down", "timeout", cfg.ShutdownTimeout.String())
 	return srv.Shutdown(shutdownCtx)
+}
+
+// loadPublicKey reads the identity service's public key from exactly one source.
+func loadPublicKey(cfg config.Config) (*rsa.PublicKey, error) {
+	text := cfg.JWTPublicKey
+	if cfg.JWTPublicKeyFile != "" {
+		raw, err := os.ReadFile(cfg.JWTPublicKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("JWT_PUBLIC_KEY_FILE: %w", err)
+		}
+		text = string(raw)
+	}
+	return httpapi.ParseRSAPublicKey(text)
 }

@@ -76,13 +76,23 @@ func validToken(t *testing.T) string {
 	return signToken(t, map[string]any{"alg": "RS256", "typ": "JWT"}, validClaims(), testKey)
 }
 
+func testVerifier() *Verifier {
+	return &Verifier{
+		Key:      &testKey.PublicKey,
+		Issuer:   testIssuer,
+		Audience: testAudience,
+		Now:      func() time.Time { return testNow },
+	}
+}
+
 func testRouter(logs io.Writer, extra ...Route) http.Handler {
 	if logs == nil {
 		logs = io.Discard
 	}
 	return NewRouter(Options{
-		Logger: slog.New(slog.NewJSONHandler(logs, nil)),
-		Routes: extra,
+		Verifier: testVerifier(),
+		Logger:   slog.New(slog.NewJSONHandler(logs, nil)),
+		Routes:   extra,
 	})
 }
 
