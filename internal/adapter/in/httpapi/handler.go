@@ -4,15 +4,31 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
-// NewRouter registers the service routes. Health is public and exposes only
-// its status, never database or dependency details.
-func NewRouter() http.Handler {
+// Route binds a method-qualified pattern to a handler.
+type Route struct {
+	Pattern string
+	Handler http.HandlerFunc
+}
+
+// Options are the concrete collaborators supplied by the composition root.
+type Options struct {
+	Logger *slog.Logger
+	Routes []Route
+}
+
+// NewRouter registers the service routes behind correlation, access log
+// and panic recovery. Health is public and exposes only its status.
+func NewRouter(o Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
-	return mux
+	for _, rt := range o.Routes {
+		mux.HandleFunc(rt.Pattern, rt.Handler)
+	}
+	return withCorrelation(o.Logger, withAccessLog(mux))
 }
 
 func health(w http.ResponseWriter, _ *http.Request) {
