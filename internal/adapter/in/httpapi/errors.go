@@ -3,6 +3,9 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+
+	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
+	"github.com/code-corhuila/dlc-clinical-api/internal/domain/model"
 )
 
 // FieldError names one invalid input, including headers such as Idempotency-Key.
@@ -49,8 +52,8 @@ func methodNotAllowed() error {
 // envelope. Anything unrecognized is a neutral 500; its detail goes only to
 // the log, with the request's traceId.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
-	var he *httpError
-	if !errors.As(err, &he) {
+	he := translate(err)
+	if he == nil {
 		loggerFrom(r.Context()).Error("unhandled error", "error", err.Error())
 		he = &httpError{status: http.StatusInternalServerError, code: "INTERNAL_ERROR", message: "an unexpected error occurred"}
 	}
@@ -63,4 +66,37 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		Details: he.details,
 		TraceID: correlationFrom(r.Context()),
 	})
+}
+
+// domainStatus maps each domain error kind to its HTTP status. This table is
+// the only place where the domain meets HTTP (Anexo C).
+var domainStatus = map[model.Kind]int{
+	model.KindInvalidInput: http.StatusBadRequest,
+	model.KindRule:         http.StatusUnprocessableEntity,
+	model.KindTransition:   http.StatusUnprocessableEntity,
+	model.KindStaleVersion: http.StatusConflict,
+	model.KindConflict:     http.StatusConflict,
+	model.KindNotFound:     http.StatusNotFound,
+	model.KindForbidden:    http.StatusForbidden,
+}
+
+// translate returns the presentable form of err, or nil for an unexpected error.
+func translate(err error) *httpError {
+	var he *httpError
+	if errors.As(err, &he) {
+		return he
+	}
+	var de *model.Error
+	if errors.As(err, &de) {
+		if status, ok := domainStatus[de.Kind]; ok {
+			if de.Kind == model.KindInvalidInput {
+				return Validation(FieldError{Field: de.Field, Message: de.Message}).(*httpError)
+			}
+			return &httpError{status: status, code: de.Code, message: de.Message}
+		}
+	}
+	if errors.Is(err, out.ErrUnavailable) {
+		return &httpError{status: http.StatusServiceUnavailable, code: "SERVICE_UNAVAILABLE", message: "the operation is temporarily unavailable; retry later"}
+	}
+	return nil
 }
