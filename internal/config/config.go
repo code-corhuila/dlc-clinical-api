@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -22,6 +23,10 @@ type Config struct {
 	JWTAudience       string
 	JWTPublicKey      string // PEM, also accepted on one line with literal "\n"
 	JWTPublicKeyFile  string
+	MongoURI          string
+	MongoDatabase     string
+	MongoMaxPoolSize  int           // connection pool size
+	MongoTimeout      time.Duration // connect, pool wait and per-operation deadline
 }
 
 var environments = map[string]bool{"dev": true, "qa": true, "main": true}
@@ -77,6 +82,9 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if err := loadIdentity(lookup, &cfg); err != nil {
 		return Config{}, err
 	}
+	if err := loadMongo(lookup, &cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -94,6 +102,37 @@ func loadIdentity(lookup func(string) (string, bool), cfg *Config) error {
 		return fmt.Errorf("JWT_AUDIENCE is required")
 	case (cfg.JWTPublicKey == "") == (cfg.JWTPublicKeyFile == ""):
 		return fmt.Errorf("set exactly one of JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE")
+	}
+	return nil
+}
+
+// loadMongo requires the Clinical database URI (credential of clinical_app,
+// never the administrator) and declares pool size and deadlines explicitly.
+func loadMongo(lookup func(string) (string, bool), cfg *Config) error {
+	cfg.MongoURI, _ = lookup("MONGO_URI")
+	if cfg.MongoURI == "" {
+		return fmt.Errorf("MONGO_URI is required")
+	}
+	cfg.MongoDatabase, cfg.MongoMaxPoolSize, cfg.MongoTimeout = "clinical", 10, 5*time.Second
+	if v, ok := lookup("MONGO_DATABASE"); ok {
+		if v == "" {
+			return fmt.Errorf("MONGO_DATABASE must not be empty")
+		}
+		cfg.MongoDatabase = v
+	}
+	if v, ok := lookup("MONGO_MAX_POOL_SIZE"); ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 100 {
+			return fmt.Errorf("MONGO_MAX_POOL_SIZE must be an integer from 1 to 100")
+		}
+		cfg.MongoMaxPoolSize = n
+	}
+	if v, ok := lookup("MONGO_TIMEOUT"); ok {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("MONGO_TIMEOUT must be a positive duration")
+		}
+		cfg.MongoTimeout = d
 	}
 	return nil
 }
