@@ -18,14 +18,19 @@ type Memory struct {
 	mu      sync.Mutex
 	records map[string]model.ClinicalRecord
 	keys    map[string]out.IdempotencyRecord
+	entries map[string]model.Entry
+	outbox  []out.OutboxEvent
 }
 
 // NewMemory returns an empty repository.
 func NewMemory() *Memory {
-	return &Memory{records: map[string]model.ClinicalRecord{}, keys: map[string]out.IdempotencyRecord{}}
+	return &Memory{records: map[string]model.ClinicalRecord{}, keys: map[string]out.IdempotencyRecord{}, entries: map[string]model.Entry{}}
 }
 
-var _ out.RecordRepository = (*Memory)(nil)
+var (
+	_ out.RecordRepository = (*Memory)(nil)
+	_ out.EntryRepository  = (*Memory)(nil)
+)
 
 func keyScope(actor, operation, key string) string { return actor + "\x00" + operation + "\x00" + key }
 
