@@ -15,6 +15,10 @@ import (
 	"time"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/in/httpapi"
+	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/out/authority"
+	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/out/persistence"
+	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/out/system"
+	"github.com/code-corhuila/dlc-clinical-api/internal/application/usecase"
 	"github.com/code-corhuila/dlc-clinical-api/internal/config"
 )
 
@@ -36,9 +40,16 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Appointments and Patients are not deployed yet: their authority fails
+	// closed. The memory repository is replaced by MongoDB in the next increment.
+	records := &usecase.RecordService{
+		Repo: persistence.NewMemory(), Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Clock: system.Clock{}, IDs: system.UUIDs{},
+	}
 	router := httpapi.NewRouter(httpapi.Options{
 		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now},
 		Logger:   logger,
+		Routes:   httpapi.RecordRoutes(records),
 	})
 
 	srv := &http.Server{
