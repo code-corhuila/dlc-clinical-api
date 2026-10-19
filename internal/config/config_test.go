@@ -7,7 +7,7 @@ import (
 )
 
 func env(values map[string]string) func(string) (string, bool) {
-	full := map[string]string{"JWT_ISSUER": "iss", "JWT_AUDIENCE": "clinical-service", "JWT_PUBLIC_KEY": "pem"}
+	full := map[string]string{"JWT_ISSUER": "iss", "JWT_AUDIENCE": "clinical-service", "JWT_PUBLIC_KEY": "pem", "MONGO_URI": "mongodb://db:27017/?replicaSet=rs0"}
 	for k, v := range values {
 		full[k] = v
 	}
@@ -36,6 +36,10 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 		JWTIssuer:         "iss",
 		JWTAudience:       "clinical-service",
 		JWTPublicKey:      "pem",
+		MongoURI:          "mongodb://db:27017/?replicaSet=rs0",
+		MongoDatabase:     "clinical",
+		MongoMaxPoolSize:  10,
+		MongoTimeout:      5 * time.Second,
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)
@@ -103,5 +107,20 @@ func TestLoadRequiresExactlyOnePublicKeySource(t *testing.T) {
 	cfg, err := Load(env(file))
 	if err != nil || cfg.JWTPublicKeyFile != "/keys/jwt.pub" {
 		t.Fatalf("file source not accepted: %+v %v", cfg, err)
+	}
+}
+
+func TestLoadMongoSettings(t *testing.T) {
+	if _, err := Load(env(map[string]string{"MONGO_URI": ""})); err == nil || !strings.Contains(err.Error(), "MONGO_URI") {
+		t.Fatalf("MONGO_URI must be required, got %v", err)
+	}
+	cfg, err := Load(env(map[string]string{"MONGO_DATABASE": "clinical_qa", "MONGO_MAX_POOL_SIZE": "25", "MONGO_TIMEOUT": "3s"}))
+	if err != nil || cfg.MongoDatabase != "clinical_qa" || cfg.MongoMaxPoolSize != 25 || cfg.MongoTimeout != 3*time.Second {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
+	for _, bad := range []map[string]string{{"MONGO_MAX_POOL_SIZE": "0"}, {"MONGO_MAX_POOL_SIZE": "x"}, {"MONGO_MAX_POOL_SIZE": "500"}, {"MONGO_TIMEOUT": "0s"}, {"MONGO_DATABASE": ""}} {
+		if _, err := Load(env(bad)); err == nil {
+			t.Fatalf("%v must be rejected", bad)
+		}
 	}
 }
