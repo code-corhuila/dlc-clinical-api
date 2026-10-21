@@ -24,6 +24,9 @@ func (m *Memory) CreateTreatment(_ context.Context, t model.Treatment, idem out.
 		return out.ErrDuplicateIdempotency
 	}
 	m.treats[t.ID], m.keys[scope] = cloneTreatment(t), idem
+	for _, p := range t.Procedures {
+		m.procs[p.ID] = p
+	}
 	m.outbox = append(m.outbox, events...)
 	return nil
 }
