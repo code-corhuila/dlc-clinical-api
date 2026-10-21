@@ -53,10 +53,14 @@ func run(logger *slog.Logger) error {
 		Repo: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
+	entries := &usecase.EntryService{
+		Records: store, Entries: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Clock: system.Clock{}, IDs: system.UUIDs{},
+	}
 	router := httpapi.NewRouter(httpapi.Options{
 		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now},
 		Logger:   logger,
-		Routes:   httpapi.RecordRoutes(records),
+		Routes:   append(httpapi.RecordRoutes(records), httpapi.EntryRoutes(entries)...),
 	})
 
 	srv := &http.Server{
