@@ -108,14 +108,7 @@ func (m *Mongo) CreateRecord(ctx context.Context, rec model.ClinicalRecord, idem
 	}
 	defer session.EndSession(ctx)
 	_, err = session.WithTransaction(ctx, func(tx context.Context) (any, error) {
-		if _, err := m.db.Collection("idempotency_keys").InsertOne(tx, idempotencyDoc{
-			ID: idempotencyID(idem.ActorID, idem.Operation, idem.Key), ActorID: idem.ActorID, Operation: idem.Operation,
-			Key: idem.Key, RequestHash: idem.RequestHash, ResourceID: idem.ResourceID, ResponseStatus: idem.ResponseStatus,
-			CreatedAt: idem.CreatedAt, ExpiresAt: idem.ExpiresAt,
-		}); err != nil {
-			if mongo.IsDuplicateKeyError(err) {
-				return nil, out.ErrDuplicateIdempotency
-			}
+		if err := m.insertIdempotency(tx, idem); err != nil {
 			return nil, err
 		}
 		if _, err := m.db.Collection("clinical_records").InsertOne(tx, recordDoc{
@@ -170,4 +163,18 @@ func (m *Mongo) ListRecords(ctx context.Context, f out.RecordFilter) ([]model.Cl
 		items = append(items, d.model())
 	}
 	return items, int(total), nil
+}
+
+// insertIdempotency stores the retry record inside the caller's transaction;
+// a duplicate scope means another request with the same key won.
+func (m *Mongo) insertIdempotency(tx context.Context, idem out.IdempotencyRecord) error {
+	_, err := m.db.Collection("idempotency_keys").InsertOne(tx, idempotencyDoc{
+		ID: idempotencyID(idem.ActorID, idem.Operation, idem.Key), ActorID: idem.ActorID, Operation: idem.Operation,
+		Key: idem.Key, RequestHash: idem.RequestHash, ResourceID: idem.ResourceID, ResponseStatus: idem.ResponseStatus,
+		CreatedAt: idem.CreatedAt, ExpiresAt: idem.ExpiresAt,
+	})
+	if mongo.IsDuplicateKeyError(err) {
+		return out.ErrDuplicateIdempotency
+	}
+	return err
 }
