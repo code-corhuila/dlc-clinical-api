@@ -32,3 +32,14 @@ var _ out.AppointmentAuthority = Unavailable{}
 func (Unavailable) InAttention(context.Context, string, string) (bool, error) {
 	return false, out.ErrUnavailable
 }
+
+var (
+	_ out.BillingAuthority = Unavailable{}
+	_ out.EncounterGate    = Unavailable{}
+)
+
+func (Unavailable) EncounterManualCharges(context.Context, string, string, string) ([]string, error) {
+	return nil, out.ErrUnavailable
+}
+
+func (Unavailable) Quiesce(context.Context, string, string, string) error { return out.ErrUnavailable }
