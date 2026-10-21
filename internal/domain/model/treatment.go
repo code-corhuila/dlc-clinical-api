@@ -20,9 +20,14 @@ const maxProcedures = 100
 type Procedure struct {
 	ID            string
 	TreatmentID   string
+	RecordID      string
+	PatientID     string
 	Code          string
 	AppointmentID string
 	Status        Status
+	Version       int // of the procedure document; 0 in the embedded treatment view
+	CompletedBy   string
+	CompletedAt   time.Time
 }
 
 // Treatment groups planned procedures justified by a diagnosis or a reason.
@@ -75,7 +80,7 @@ func PlanTreatment(in TreatmentInput) (Treatment, error) {
 		if p.AppointmentID == "" {
 			return Treatment{}, invalid("procedures.appointmentId", "required")
 		}
-		procs[i] = Procedure{ID: p.ID, TreatmentID: in.ID, Code: p.Code, AppointmentID: p.AppointmentID, Status: StatusPlanned}
+		procs[i] = Procedure{ID: p.ID, TreatmentID: in.ID, RecordID: in.RecordID, PatientID: in.PatientID, Code: p.Code, AppointmentID: p.AppointmentID, Status: StatusPlanned, Version: 1}
 	}
 	return Treatment{
 		ID: in.ID, RecordID: in.RecordID, PatientID: in.PatientID, DiagnosisID: in.DiagnosisID,
