@@ -26,3 +26,9 @@ func (Unavailable) AssignedPatients(context.Context, string) ([]string, error) {
 }
 
 func (Unavailable) IsActive(context.Context, string) (bool, error) { return false, out.ErrUnavailable }
+
+var _ out.AppointmentAuthority = Unavailable{}
+
+func (Unavailable) InAttention(context.Context, string, string) (bool, error) {
+	return false, out.ErrUnavailable
+}
