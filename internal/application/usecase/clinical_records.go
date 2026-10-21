@@ -14,8 +14,11 @@ import (
 // OpOpenRecord scopes idempotency keys to the OpenAPI operation.
 const OpOpenRecord = "ClinicalOpenclinicalrecord"
 
-// statusCreated is the stored outcome of a first, successful creation.
-const statusCreated = 201
+// Stored outcomes of a first successful creation (201) or transition (200).
+const (
+	statusCreated = 201
+	statusOK      = 200
+)
 
 // idempotencyRetention keeps retry records at least seven days (design-decisions.md).
 const idempotencyRetention = 7 * 24 * time.Hour
