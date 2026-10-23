@@ -33,6 +33,19 @@ type GuardedWrite struct {
 	Commit    func(ctx context.Context) error
 }
 
+// appointmentEncounter is the encounter an appointment-scoped write belongs
+// to: the consultation of the record for that appointment, if one exists.
+func appointmentEncounter(ctx context.Context, lookup out.ConsultationLookup, recordID, appointmentID string) (*out.EncounterKey, error) {
+	if appointmentID == "" {
+		return nil, nil
+	}
+	consultation, found, err := lookup.ConsultationForAppointment(ctx, recordID, appointmentID)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &out.EncounterKey{RecordID: recordID, ConsultationID: consultation}, nil
+}
+
 func inactivePatient() error {
 	return &model.Error{Kind: model.KindRule, Code: "BUSINESS_RULE_VIOLATION", Message: "only active patients can receive new clinical data"}
 }
