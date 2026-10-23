@@ -31,10 +31,16 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, dst any
 	if len(query) > 0 {
 		path += "?" + query.Encode()
 	}
-	return c.do(ctx, http.MethodGet, path, nil, dst)
+	return c.do(ctx, http.MethodGet, path, "", nil, dst)
 }
 
-func (c *Client) do(ctx context.Context, method, path string, body any, dst any) error {
+// post sends a coordination command; idempotencyKey lets the owner deduplicate
+// retries (Norma 5.3.8).
+func (c *Client) post(ctx context.Context, path, idempotencyKey string, body, dst any) error {
+	return c.do(ctx, http.MethodPost, path, idempotencyKey, body, dst)
+}
+
+func (c *Client) do(ctx context.Context, method, path, idempotencyKey string, body, dst any) error {
 	var payload io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -50,6 +56,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any, dst any)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/json")
 	if id := correlation.ID(ctx); id != "" {
@@ -61,7 +70,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, dst any)
 	}
 	defer res.Body.Close()
 	switch res.StatusCode {
-	case http.StatusOK:
+	case http.StatusOK, http.StatusCreated:
 		dec := json.NewDecoder(res.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(dst); err != nil {
@@ -70,6 +79,8 @@ func (c *Client) do(ctx context.Context, method, path string, body any, dst any)
 		return nil
 	case http.StatusNotFound:
 		return errOwnerNotFound
+	case http.StatusConflict:
+		return out.ErrOwnerConflict
 	default:
 		return fmt.Errorf("owner answered %d: %w", res.StatusCode, out.ErrUnavailable)
 	}
@@ -190,7 +201,7 @@ func (s Sessions) IsActive(ctx context.Context, accessToken string) (bool, error
 	var v struct {
 		Active *bool `json:"active"`
 	}
-	err := s.Client.do(ctx, http.MethodPost, "/sessions/validations", map[string]string{"accessToken": accessToken}, &v)
+	err := s.Client.post(ctx, "/sessions/validations", "", map[string]string{"accessToken": accessToken}, &v)
 	if errors.Is(err, errOwnerNotFound) {
 		return false, fmt.Errorf("session validation not found: %w", out.ErrUnavailable)
 	}

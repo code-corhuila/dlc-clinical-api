@@ -34,6 +34,7 @@ func (Unavailable) InAttention(context.Context, string, string) (bool, error) {
 }
 
 var (
+	_ out.PatientGate      = Unavailable{}
 	_ out.BillingAuthority = Unavailable{}
 	_ out.EncounterGate    = Unavailable{}
 )
@@ -43,3 +44,11 @@ func (Unavailable) EncounterManualCharges(context.Context, string, string, strin
 }
 
 func (Unavailable) Quiesce(context.Context, string, string, string) error { return out.ErrUnavailable }
+
+func (Unavailable) AcquireActivityGuard(context.Context, string, string) (out.Guard, error) {
+	return out.Guard{}, out.ErrUnavailable
+}
+
+func (Unavailable) ResolveGuard(context.Context, string, string, string) error {
+	return out.ErrUnavailable
+}
