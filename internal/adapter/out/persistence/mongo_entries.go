@@ -116,7 +116,7 @@ func (m *Mongo) CreateEntry(ctx context.Context, e model.Entry, idem out.Idempot
 	}
 	defer session.EndSession(ctx)
 	_, err = session.WithTransaction(ctx, func(tx context.Context) (any, error) {
-		if err := m.insertIdempotency(tx, idem); err != nil {
+		if err := m.recordWrite(tx, idem); err != nil {
 			return nil, err
 		}
 		if _, err := m.db.Collection(collectionFor(e.Kind)).InsertOne(tx, entryDocument(e)); err != nil {

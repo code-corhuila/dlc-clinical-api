@@ -87,7 +87,7 @@ func (m *Mongo) transact(ctx context.Context, fn func(tx context.Context) error)
 // CreateTreatment writes key, treatment, its procedures and events atomically.
 func (m *Mongo) CreateTreatment(ctx context.Context, t model.Treatment, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
 	return m.transact(ctx, func(tx context.Context) error {
-		if err := m.insertIdempotency(tx, idem); err != nil {
+		if err := m.recordWrite(tx, idem); err != nil {
 			return err
 		}
 		if _, err := m.db.Collection("treatments").InsertOne(tx, toTreatmentDoc(t)); err != nil {

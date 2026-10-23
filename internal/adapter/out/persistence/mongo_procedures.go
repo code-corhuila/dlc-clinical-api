@@ -78,7 +78,7 @@ func (m *Mongo) CompleteProcedure(ctx context.Context, p model.Procedure, fromVe
 		docs = append(docs, d)
 	}
 	return m.transact(ctx, func(tx context.Context) error {
-		if err := m.insertIdempotency(tx, idem); err != nil {
+		if err := m.recordWrite(tx, idem); err != nil {
 			return err
 		}
 		res, err := m.db.Collection("procedures").UpdateOne(tx,
