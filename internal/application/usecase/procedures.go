@@ -21,8 +21,11 @@ type ProcedureService struct {
 	Care         out.CareAuthority
 	Patients     out.PatientDirectory
 	Appointments out.AppointmentAuthority
-	Clock        out.Clock
-	IDs          out.IDGenerator
+	// Consultations resolves the encounter a completion is admitted to.
+	Consultations out.ConsultationLookup
+	Guard         *GuardedWrites
+	Clock         out.Clock
+	IDs           out.IDGenerator
 }
 
 var _ in.ProcedureCompletions = (*ProcedureService)(nil)
@@ -82,7 +85,15 @@ func (s *ProcedureService) Complete(ctx context.Context, cmd in.CompleteProcedur
 	}
 	idem := out.IdempotencyRecord{ActorID: cmd.Actor.ID, Operation: OpCompleteProcedure, Key: cmd.IdempotencyKey, RequestHash: cmd.RequestHash,
 		ResourceID: p.ID, ResponseStatus: statusOK, CreatedAt: now, ExpiresAt: now.Add(idempotencyRetention)}
-	switch err := s.Procedures.CompleteProcedure(ctx, p, from, recorded, idem, []out.OutboxEvent{event}); {
+	encounter, err := appointmentEncounter(ctx, s.Consultations, p.RecordID, p.AppointmentID)
+	if err != nil {
+		return in.ProcedureCompletionResult{}, err
+	}
+	err = s.Guard.Run(ctx, GuardedWrite{Actor: cmd.Actor, PatientID: p.PatientID, Encounter: encounter,
+		Commit: func(tagged context.Context) error {
+			return s.Procedures.CompleteProcedure(tagged, p, from, recorded, idem, []out.OutboxEvent{event})
+		}})
+	switch {
 	case errors.Is(err, out.ErrVersionConflict):
 		return in.ProcedureCompletionResult{}, &model.Error{Kind: model.KindStaleVersion, Code: "STALE_VERSION", Message: "the resource has changed; reload it before submitting a new operation"}
 	case errors.Is(err, out.ErrDuplicateSource):

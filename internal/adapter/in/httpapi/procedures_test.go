@@ -30,8 +30,8 @@ func newProceduresEnv(t *testing.T, apts out.AppointmentAuthority) *proceduresEn
 	care, patients, clk, ids := stubCare{}, stubPatients{}, &clock{t: testNow}, uuids{}
 	routes := append(RecordRoutes(&usecase.RecordService{Repo: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids}),
 		EntryRoutes(&usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids})...)
-	routes = append(routes, TreatmentRoutes(&usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
-	routes = append(routes, ProcedureRoutes(&usecase.ProcedureService{Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients, Appointments: apts, Clock: clk, IDs: ids})...)
+	routes = append(routes, TreatmentRoutes(&usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids})...)
+	routes = append(routes, ProcedureRoutes(&usecase.ProcedureService{Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients, Appointments: apts, Consultations: store, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids})...)
 	h := NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Routes: routes})
 	rec := post(h, validToken(t), key1, `{"patientId":"`+patientA+`"}`)
 	var body map[string]any

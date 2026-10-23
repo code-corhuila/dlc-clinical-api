@@ -219,3 +219,60 @@ func TestUnconfiguredGuardFailsClosed(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// intentsFor returns the guarded-write intents admitted to an encounter.
+func (f *fakeCoordination) intentsFor(consultationID string) []out.WriteIntent {
+	var found []out.WriteIntent
+	for _, w := range f.intents {
+		if w.Encounter.ConsultationID == consultationID {
+			found = append(found, w)
+		}
+	}
+	return found
+}
+
+// consultationOf returns the fixture's consultation for apt-1 on rec1.
+func (ef entryFixture) consultationOf(t *testing.T) string {
+	t.Helper()
+	for _, e := range ef.entries.entries {
+		if e.Kind == model.KindConsultation && e.RecordID == ef.rec1 && e.AppointmentID == "apt-1" {
+			return e.ID
+		}
+	}
+	t.Fatal("no consultation for apt-1")
+	return ""
+}
+
+func TestAppointmentWritesAreAdmittedToTheConsultationEncounter(t *testing.T) {
+	pf := setupProcedures(t, true)
+	cons := pf.consultationOf(t)
+	before := len(pf.coord.intentsFor(cons))
+	if _, err := pf.complete(dentist, "k-adm-01"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pf.record(dentist, pf.rec1, model.KindEvolution, "k-adm-02"); err != nil {
+		t.Fatal(err)
+	}
+	if got := pf.coord.intentsFor(cons); len(got) != before+2 || got[0].Encounter.RecordID != pf.rec1 {
+		t.Fatalf("admitted = %+v", got)
+	}
+	pf = setupProcedures(t, true)
+	pf.coord.frozen = true
+	if _, err := pf.complete(dentist, "k-adm-03"); kindOf(t, err) != model.KindConflict {
+		t.Fatalf("a frozen encounter rejects the completion: %v", err)
+	}
+	if _, err := pf.record(dentist, pf.rec1, model.KindEvolution, "k-adm-04"); kindOf(t, err) != model.KindConflict {
+		t.Fatalf("and the encounter entry: %v", err)
+	}
+}
+
+func TestTreatmentPlanningRunsUnderTheGuard(t *testing.T) {
+	tf := setupTreatments(t)
+	tf.coord.acquireErr = out.ErrOwnerConflict
+	if _, err := tf.plan(dentist, "pat-1", "k-gplan-01"); kindOf(t, err) != model.KindRule {
+		t.Fatalf("a blocked patient gate rejects the plan: %v", err)
+	}
+	if len(tf.repo.items) != 0 {
+		t.Fatal("no treatment is stored")
+	}
+}
