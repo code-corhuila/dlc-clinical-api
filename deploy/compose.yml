@@ -1,4 +1,4 @@
-# Clinical API and its outbox relay. The shared MongoDB instance belongs to dlc-infra-mongo and the
+# Clinical API, its outbox relay and its inbox consumer. The shared MongoDB instance belongs to dlc-infra-mongo and the
 # Clinical schema to dlc-clinical-db; this file never defines a database or volume.
 name: dlc-clinical-api
 services:
@@ -15,6 +15,14 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     entrypoint: ["/clinical-outbox-relay"]
+    env_file: ../.env
+    networks: [platform]
+  # Applies AppointmentCompleted and EncounterChargesCompleted to the encounter closure.
+  clinical-inbox-consumer:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    entrypoint: ["/clinical-inbox-consumer"]
     env_file: ../.env
     networks: [platform]
 networks:
