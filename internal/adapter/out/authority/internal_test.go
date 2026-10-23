@@ -3,9 +3,12 @@ package authority
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,13 +105,64 @@ func TestAppointmentsAssignmentValidation(t *testing.T) {
 	}
 }
 
-func TestOperationsWithoutAnOwnerContractFailClosed(t *testing.T) {
-	c, seen := owner(t, reply(200, `{}`))
-	if _, err := (Appointments{Client: c}).AssignedPatients(ctx, dentist); !errors.Is(err, out.ErrUnavailable) {
-		t.Fatalf("got %v", err)
+// assignedPage answers one page of GET /dentists/{id}/assigned-patients.
+func assignedPage(version, page, totalPages int, ids ...string) string {
+	data := ""
+	for i, id := range ids {
+		if i > 0 {
+			data += ","
+		}
+		data += `{"patientId":"` + id + `","relationshipVersion":1,"sourceTypes":["APPOINTMENT"]}`
 	}
-	if len(*seen) != 0 {
-		t.Fatal("no undocumented endpoint is invented")
+	return fmt.Sprintf(`{"dentistId":"%s","assignmentsVersion":%d,"data":[%s],"meta":{"page":%d,"limit":100,"total":%d,"totalPages":%d}}`,
+		dentist, version, data, page, len(ids)*totalPages, totalPages)
+}
+
+func TestAssignedPatientsPagesThroughOneSnapshot(t *testing.T) {
+	c, seen := owner(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "1" {
+			reply(200, assignedPage(7, 1, 2, "p-1", "p-2"))(w, r)
+			return
+		}
+		reply(200, assignedPage(7, 2, 2, "p-3"))(w, r)
+	})
+	ids, err := Appointments{Client: c}.AssignedPatients(ctx, dentist)
+	if err != nil || !slices.Equal(ids, []string{"p-1", "p-2", "p-3"}) {
+		t.Fatalf("got %v %v", ids, err)
+	}
+	r := (*seen)[0]
+	if r.URL.Path != "/internal/v1/dentists/"+dentist+"/assigned-patients" || r.URL.Query().Get("limit") != "100" || len(*seen) != 2 {
+		t.Fatalf("request = %s, calls %d", r.URL, len(*seen))
+	}
+}
+
+func TestAssignedPatientsAnswers(t *testing.T) {
+	cases := map[string]struct {
+		h    func(http.ResponseWriter, *http.Request)
+		ids  []string
+		down bool
+	}{
+		"no current sources": {reply(200, assignedPage(1, 1, 1)), []string{}, false},
+		"unknown dentist":    {reply(404, `{"error":"NOT_FOUND","message":"x"}`), []string{}, false},
+		"owner down":         {reply(503, `{"error":"SERVICE_UNAVAILABLE","message":"x"}`), nil, true},
+		"other dentist":      {reply(200, strings.Replace(assignedPage(1, 1, 1, "p-1"), dentist, patient, 1)), nil, true},
+		"snapshot changed": {func(w http.ResponseWriter, r *http.Request) {
+			v := 1
+			if r.URL.Query().Get("page") == "2" {
+				v = 2
+			}
+			reply(200, assignedPage(v, 1, 2, "p-1"))(w, r)
+		}, nil, true},
+		"unbounded pages": {reply(200, assignedPage(1, 1, 1000, "p-1")), nil, true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			client, _ := owner(t, c.h)
+			ids, err := Appointments{Client: client}.AssignedPatients(ctx, dentist)
+			if c.down != errors.Is(err, out.ErrUnavailable) || (!c.down && !slices.Equal(ids, c.ids)) {
+				t.Fatalf("got %v %v", ids, err)
+			}
+		})
 	}
 }
 

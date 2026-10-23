@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/correlation"
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
@@ -126,10 +127,58 @@ func (a Appointments) IsAssigned(ctx context.Context, patientID, dentistID strin
 	return *v.Assigned, nil
 }
 
-// AssignedPatients has no owner contract yet (internal-coordination.yaml only
-// validates one pair), so it fails closed instead of inventing an endpoint.
-func (a Appointments) AssignedPatients(context.Context, string) ([]string, error) {
-	return nil, fmt.Errorf("no owner contract lists a dentist's assigned patients: %w", out.ErrUnavailable)
+// maxAssignedPages bounds the paging of one dentist's assignments
+// (100 per page); a larger answer fails closed instead of looping.
+const maxAssignedPages = 50
+
+// AssignedPatients pages through GET /internal/v1/dentists/{id}/assigned-patients.
+// Every page must belong to the same assignmentsVersion snapshot; an unknown
+// dentist has no patients.
+func (a Appointments) AssignedPatients(ctx context.Context, dentistID string) ([]string, error) {
+	ids := []string{}
+	version := 0
+	for page := 1; ; page++ {
+		var v assignedPatientPage
+		err := a.Client.get(ctx, "/dentists/"+url.PathEscape(dentistID)+"/assigned-patients",
+			url.Values{"page": {strconv.Itoa(page)}, "limit": {"100"}}, &v)
+		if errors.Is(err, errOwnerNotFound) {
+			return []string{}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case v.DentistID != dentistID:
+			return nil, fmt.Errorf("assigned patients of another dentist: %w", out.ErrUnavailable)
+		case version != 0 && v.AssignmentsVersion != version:
+			return nil, fmt.Errorf("assignments changed while paging: %w", out.ErrUnavailable)
+		case v.Meta.TotalPages > maxAssignedPages:
+			return nil, fmt.Errorf("more than %d pages of assigned patients: %w", maxAssignedPages, out.ErrUnavailable)
+		}
+		version = v.AssignmentsVersion
+		for _, p := range v.Data {
+			ids = append(ids, p.PatientID)
+		}
+		if page >= v.Meta.TotalPages {
+			return ids, nil
+		}
+	}
+}
+
+type assignedPatientPage struct {
+	DentistID          string `json:"dentistId"`
+	AssignmentsVersion int    `json:"assignmentsVersion"`
+	Data               []struct {
+		PatientID           string   `json:"patientId"`
+		RelationshipVersion int      `json:"relationshipVersion"`
+		SourceTypes         []string `json:"sourceTypes"`
+	} `json:"data"`
+	Meta struct {
+		Page       int `json:"page"`
+		Limit      int `json:"limit"`
+		Total      int `json:"total"`
+		TotalPages int `json:"totalPages"`
+	} `json:"meta"`
 }
 
 // Sessions adapts POST /internal/v1/sessions/validations (auth-service, scope
