@@ -56,6 +56,7 @@ func CareCompletionRoutes(svc in.CareCompletions) []Route {
 	return []Route{
 		{Pattern: "POST " + recordsPath + "/{id}/care-completions", Handler: h.declare},
 		{Pattern: "GET " + closuresPath + "/{id}", Handler: h.get},
+		{Pattern: "POST " + closuresPath + "/{id}/retries", Handler: h.retry},
 	}
 }
 
@@ -123,4 +124,31 @@ func toClosureResponse(c model.CareClosure) careClosureResponse {
 		ManualChargeIDs: nonNil(c.ManualChargeIDs), AppointmentID: c.AppointmentID, Status: string(c.Status),
 		AppointmentOutcome: string(c.AppointmentOutcome), BillingOutcome: string(c.BillingOutcome), FailureReason: c.FailureReason,
 		CreatedAt: rfc3339(c.CreatedAt), UpdatedAt: rfc3339(c.UpdatedAt), Version: c.Version}
+}
+
+// retry answers 202 with the resumed CareClosure, also for a retried request.
+func (h careHandlers) retry(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Reason          string `json:"reason"`
+		ExpectedVersion *int   `json:"expectedVersion"`
+	}
+	if err := DecodeJSON(w, r, &body); err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	id, key, details := writeHeaderChecks(r)
+	if body.ExpectedVersion == nil || *body.ExpectedVersion < 1 {
+		details = append(details, FieldError{Field: "expectedVersion", Message: "required, integer from 1"})
+	}
+	if len(details) > 0 {
+		WriteError(w, r, Validation(details...))
+		return
+	}
+	res, err := h.svc.Retry(r.Context(), in.RetryClosureCommand{Actor: actorFrom(r), ClosureID: id, Reason: body.Reason,
+		ExpectedVersion: *body.ExpectedVersion, IdempotencyKey: key, RequestHash: requestHash(body)})
+	if err != nil {
+		WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, toClosureResponse(res.Closure))
 }

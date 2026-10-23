@@ -16,6 +16,7 @@ type fakeClosures struct {
 	idem      map[string]out.IdempotencyRecord
 	outbox    []out.OutboxEvent
 	completed []string
+	retried   int
 }
 
 func (r *fakeClosures) FindIdempotency(_ context.Context, a, o, k string) (out.IdempotencyRecord, bool, error) {
@@ -203,6 +204,80 @@ func TestGetClosureIsScoped(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	if _, err := cf.svc.GetClosure(context.Background(), assistant, res.Closure.ID); kindOf(t, err) != model.KindForbidden {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func (r *fakeClosures) RetryClosure(_ context.Context, c model.CareClosure, from int, idem out.IdempotencyRecord) error {
+	if _, ok := r.idem[scope(idem.ActorID, idem.Operation, idem.Key)]; ok {
+		return out.ErrDuplicateIdempotency
+	}
+	if r.items[c.ID].Version != from {
+		return out.ErrVersionConflict
+	}
+	r.items[c.ID], r.idem[scope(idem.ActorID, idem.Operation, idem.Key)] = c, idem
+	r.retried++
+	return nil
+}
+
+func (cf closureFixture) failClosure(t *testing.T) model.CareClosure {
+	t.Helper()
+	res, err := cf.declare(dentist, "k-decl-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := res.Closure
+	c.MarkFailed("billing intervention required", c.UpdatedAt)
+	cf.closures.items[c.ID] = c
+	return c
+}
+
+func (cf closureFixture) retry(actor in.Actor, id string, version int, key string) (in.CareClosureResult, error) {
+	return cf.svc.Retry(context.Background(), in.RetryClosureCommand{Actor: actor, ClosureID: id, Reason: "precio corregido en Billing", ExpectedVersion: version, IdempotencyKey: key, RequestHash: "h-" + key})
+}
+
+func TestRetryClosureResumesTheSameProcess(t *testing.T) {
+	cf := setupClosures(t)
+	failed := cf.failClosure(t)
+	res, err := cf.retry(dentist, failed.ID, 2, "k-retry-01")
+	if err != nil || res.Closure.Status != model.ClosureAwaitingFinalization || res.Closure.FailureReason != "" || res.Closure.Version != 3 || cf.closures.retried != 1 {
+		t.Fatalf("retry = %+v %v", res, err)
+	}
+	if again, err := cf.retry(dentist, failed.ID, 2, "k-retry-01"); err != nil || !again.Replayed || cf.closures.retried != 1 {
+		t.Fatalf("a repeated retry returns the saved result: %+v %v", again, err)
+	}
+	if len(cf.closures.outbox) != 1 {
+		t.Fatal("a retry never creates a new declaration event")
+	}
+	if _, err := cf.retry(dentist, failed.ID, 3, "k-retry-02"); kindOf(t, err) != model.KindConflict {
+		t.Fatalf("an awaiting closure cannot be retried, got %v", err)
+	}
+}
+
+func TestRetryClosureRules(t *testing.T) {
+	cases := map[string]struct {
+		actor   in.Actor
+		version int
+		reason  string
+		want    model.Kind
+	}{
+		"assistant":          {assistant, 2, "r", model.KindForbidden},
+		"unassigned dentist": {other, 2, "r", model.KindNotFound},
+		"stale":              {dentist, 1, "r", model.KindStaleVersion},
+		"no reason":          {dentist, 2, "", model.KindInvalidInput},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			cf := setupClosures(t)
+			failed := cf.failClosure(t)
+			_, err := cf.svc.Retry(context.Background(), in.RetryClosureCommand{Actor: c.actor, ClosureID: failed.ID, Reason: c.reason, ExpectedVersion: c.version, IdempotencyKey: "k-r-01", RequestHash: "h"})
+			if kindOf(t, err) != c.want {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+	cf := setupClosures(t)
+	if _, err := cf.retry(dentist, "missing", 1, "k-r-02"); kindOf(t, err) != model.KindNotFound {
 		t.Fatalf("got %v", err)
 	}
 }

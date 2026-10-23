@@ -11,8 +11,11 @@ import (
 	"github.com/code-corhuila/dlc-clinical-api/internal/domain/model"
 )
 
-// OpDeclareCareCompletion scopes idempotency keys to the OpenAPI operation.
-const OpDeclareCareCompletion = "ClinicalDeclareCareCompleted"
+// Operation ids of clinical-service.yaml, used to scope idempotency keys.
+const (
+	OpDeclareCareCompletion = "ClinicalDeclareCareCompleted"
+	OpRetryCareClosure      = "ClinicalRetrycareclosure"
+)
 
 // CareCompletionService implements in.CareCompletions.
 type CareCompletionService struct {
@@ -151,4 +154,71 @@ func (s *CareCompletionService) replay(ctx context.Context, cmd in.DeclareCareCo
 		return in.CareClosureResult{}, true, err
 	}
 	return in.CareClosureResult{Closure: c, Replayed: true}, true, nil
+}
+
+// statusAccepted is the stored outcome of a resumed closure (202 in the contract).
+const statusAccepted = 202
+
+// Retry resumes the same pending or failed closure after an authorized
+// correction. It never undoes or duplicates the committed clinical work or
+// charges: the original declaration event is retransmitted, not recreated.
+func (s *CareCompletionService) Retry(ctx context.Context, cmd in.RetryClosureCommand) (in.CareClosureResult, error) {
+	if !textWithinReason(cmd.Reason) {
+		return in.CareClosureResult{}, &model.Error{Kind: model.KindInvalidInput, Code: "VALIDATION_ERROR", Message: "must have 1 to 1000 characters", Field: "reason"}
+	}
+	saved, found, err := s.Closures.FindIdempotency(ctx, cmd.Actor.ID, OpRetryCareClosure, cmd.IdempotencyKey)
+	if err != nil {
+		return in.CareClosureResult{}, err
+	}
+	if found {
+		if saved.RequestHash != cmd.RequestHash {
+			return in.CareClosureResult{}, &model.Error{Kind: model.KindConflict, Code: "IDEMPOTENCY_CONFLICT", Message: "the idempotency key was already used with a different request"}
+		}
+		c, err := s.writableClosure(ctx, cmd.Actor, saved.ResourceID)
+		return in.CareClosureResult{Closure: c, Replayed: true}, err
+	}
+	c, err := s.writableClosure(ctx, cmd.Actor, cmd.ClosureID)
+	if err != nil {
+		return in.CareClosureResult{}, err
+	}
+	now := s.Clock.Now()
+	from := c.Version
+	if err := c.Retry(cmd.ExpectedVersion, now); err != nil {
+		return in.CareClosureResult{}, err
+	}
+	idem := out.IdempotencyRecord{ActorID: cmd.Actor.ID, Operation: OpRetryCareClosure, Key: cmd.IdempotencyKey, RequestHash: cmd.RequestHash,
+		ResourceID: c.ID, ResponseStatus: statusAccepted, CreatedAt: now, ExpiresAt: now.Add(idempotencyRetention)}
+	switch err := s.Closures.RetryClosure(ctx, c, from, idem); {
+	case errors.Is(err, out.ErrVersionConflict):
+		return in.CareClosureResult{}, &model.Error{Kind: model.KindStaleVersion, Code: "STALE_VERSION", Message: "the resource has changed; reload it before submitting a new operation"}
+	case errors.Is(err, out.ErrDuplicateIdempotency):
+		return s.Retry(ctx, cmd)
+	case err != nil:
+		return in.CareClosureResult{}, err
+	}
+	return in.CareClosureResult{Closure: c}, nil
+}
+
+func textWithinReason(r string) bool { n := len([]rune(r)); return n >= 1 && n <= 1000 }
+
+// writableClosure loads a closure the actor may act on (Dentist assigned or
+// clinically authorized Administrator); out of scope looks missing.
+func (s *CareCompletionService) writableClosure(ctx context.Context, actor in.Actor, id string) (model.CareClosure, error) {
+	if err := mayUseClinical(actor, accessWrite); err != nil {
+		return model.CareClosure{}, err
+	}
+	c, err := s.Closures.GetClosure(ctx, id)
+	if errors.Is(err, out.ErrNotFound) {
+		return model.CareClosure{}, notFound()
+	}
+	if err != nil {
+		return model.CareClosure{}, err
+	}
+	switch err := authorizePatient(ctx, s.Care, actor, c.PatientID, accessWrite); {
+	case errors.Is(err, out.ErrUnavailable):
+		return model.CareClosure{}, err
+	case err != nil:
+		return model.CareClosure{}, notFound()
+	}
+	return c, nil
 }

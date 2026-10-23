@@ -74,3 +74,45 @@ func TestClosureCompletesOnlyWithBothOutcomesInAnyOrder(t *testing.T) {
 		t.Fatalf("got %s", appointmentFirst.Status)
 	}
 }
+
+func TestClosureRetryResumesOnlyPendingOrFailed(t *testing.T) {
+	at := time.Now()
+	awaiting, _ := DeclareCareCompletion(declaration())
+	if err := awaiting.Retry(1, at); kindOf(t, err) != KindConflict {
+		t.Fatal("waiting for administrative finalization is never a retry condition (ADR-014)")
+	}
+
+	failed, _ := DeclareCareCompletion(declaration())
+	failed.MarkFailed("billing snapshot rejected", at)
+	if failed.Status != ClosureFailed || failed.FailureReason == "" || failed.Version != 2 {
+		t.Fatalf("failed = %+v", failed)
+	}
+	if kindOf(t, failed.Retry(1, at)) != KindStaleVersion {
+		t.Fatal("stale version must be rejected")
+	}
+	if err := failed.Retry(2, at); err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != ClosureAwaitingFinalization || failed.FailureReason != "" || failed.Version != 3 {
+		t.Fatalf("a retried closure resumes from its recorded outcomes: %+v", failed)
+	}
+
+	pending, _ := DeclareCareCompletion(declaration())
+	pending.RecordAppointmentCompleted(at)
+	if err := pending.Retry(2, at); err != nil || pending.Status != ClosurePending || pending.AppointmentOutcome != OutcomeCompleted {
+		t.Fatalf("a retry never undoes a recorded outcome: %+v %v", pending, err)
+	}
+
+	done, _ := DeclareCareCompletion(declaration())
+	done.RecordAppointmentCompleted(at)
+	done.RecordBillingCompleted(at)
+	if kindOf(t, done.Retry(3, at)) != KindConflict {
+		t.Fatal("a completed closure cannot be retried")
+	}
+	long := strings.Repeat("x", 600)
+	other, _ := DeclareCareCompletion(declaration())
+	other.MarkFailed(long, at)
+	if len([]rune(other.FailureReason)) != 500 {
+		t.Fatal("the safe failure reason is bounded by the validator")
+	}
+}

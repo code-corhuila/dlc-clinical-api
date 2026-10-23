@@ -20,6 +20,16 @@ type DeclareCareCompletionCommand struct {
 	CorrelationID   string
 }
 
+// RetryClosureCommand resumes a pending or failed closure after an authorized correction.
+type RetryClosureCommand struct {
+	Actor           Actor
+	ClosureID       string
+	Reason          string
+	ExpectedVersion int
+	IdempotencyKey  string
+	RequestHash     string
+}
+
 // CareClosureResult tells whether the declaration happened now or was replayed.
 type CareClosureResult struct {
 	Closure  model.CareClosure
@@ -30,4 +40,5 @@ type CareClosureResult struct {
 type CareCompletions interface {
 	Declare(ctx context.Context, cmd DeclareCareCompletionCommand) (CareClosureResult, error)
 	GetClosure(ctx context.Context, actor Actor, id string) (model.CareClosure, error)
+	Retry(ctx context.Context, cmd RetryClosureCommand) (CareClosureResult, error)
 }

@@ -133,3 +133,31 @@ func (c *CareClosure) advance(at time.Time) {
 	c.UpdatedAt = at
 	c.Version++
 }
+
+// maxFailureReason bounds the safe reason, matching the care_closures validator.
+const maxFailureReason = 500
+
+// MarkFailed records exhausted retries or a required intervention. It never
+// undoes the committed clinical work (ADR-014 point 5).
+func (c *CareClosure) MarkFailed(reason string, at time.Time) {
+	r := []rune(reason)
+	if len(r) > maxFailureReason {
+		r = r[:maxFailureReason]
+	}
+	c.Status, c.FailureReason, c.UpdatedAt = ClosureFailed, string(r), at
+	c.Version++
+}
+
+// Retry resumes a pending or failed closure from its recorded outcomes. Waiting
+// for the administrative finalization is never a retry condition.
+func (c *CareClosure) Retry(expectedVersion int, at time.Time) error {
+	if expectedVersion != c.Version {
+		return staleVersion()
+	}
+	if c.Status != ClosurePending && c.Status != ClosureFailed {
+		return &Error{Kind: KindConflict, Code: "CARE_STATE_CONFLICT", Message: "only a pending or failed closure can be retried"}
+	}
+	c.FailureReason = ""
+	c.advance(at)
+	return nil
+}
