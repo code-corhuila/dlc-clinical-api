@@ -103,3 +103,26 @@ func TestMemoryTaggedWriteCommitsItsIntentAndAdmission(t *testing.T) {
 		t.Fatal("a rejected tagged write leaves nothing behind")
 	}
 }
+
+func TestMemoryFenceExcludesALateCommit(t *testing.T) {
+	m := NewMemory()
+	_ = m.SaveIntent(ctx, intent("op-f1", out.IntentGuardedWrite))
+	if committed, err := m.FenceIntent(ctx, "op-f1"); err != nil || committed {
+		t.Fatalf("fence = %v %v", committed, err)
+	}
+	if committed, err := m.FenceIntent(ctx, "op-f1"); err != nil || committed {
+		t.Fatal("fencing again is a no-op")
+	}
+	tagged := out.WithWriteTag(ctx, out.WriteTag{OperationID: "op-f1"})
+	if err := m.CreateEntry(tagged, entry("e-f1", "rec-1", time.Now()), key("k-f1", "e-f1"), nil); !errors.Is(err, out.ErrIntentSettled) {
+		t.Fatalf("a fenced intent rejects its late write: %v", err)
+	}
+	_ = m.SaveIntent(ctx, intent("op-f2", out.IntentGuardedWrite))
+	_ = m.CreateEntry(out.WithWriteTag(ctx, out.WriteTag{OperationID: "op-f2"}), entry("e-f2", "rec-1", time.Now()), key("k-f2", "e-f2"), nil)
+	if committed, err := m.FenceIntent(ctx, "op-f2"); err != nil || !committed {
+		t.Fatalf("a committed intent is never fenced: %v %v", committed, err)
+	}
+	if w, _ := m.GetIntent(ctx, "op-f2"); w.Fenced {
+		t.Fatal("and keeps no fence")
+	}
+}

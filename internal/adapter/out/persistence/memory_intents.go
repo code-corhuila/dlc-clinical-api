@@ -61,6 +61,21 @@ func (m *Memory) FinishIntent(_ context.Context, operationID, state string) erro
 	return nil
 }
 
+func (m *Memory) FenceIntent(_ context.Context, operationID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	w, ok := m.intents[operationID]
+	if !ok {
+		return false, out.ErrNotFound
+	}
+	if w.Committed {
+		return true, nil
+	}
+	w.Fenced = true
+	m.intents[operationID] = w
+	return false, nil
+}
+
 func (m *Memory) GetIntent(_ context.Context, operationID string) (out.WriteIntent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -161,7 +176,7 @@ func (m *Memory) applyWriteTag(ctx context.Context) error {
 		return nil
 	}
 	w, found := m.intents[tag.OperationID]
-	if !found || w.State != out.IntentPending || w.Committed {
+	if !found || w.State != out.IntentPending || w.Committed || w.Fenced {
 		return out.ErrIntentSettled
 	}
 	var a *admission

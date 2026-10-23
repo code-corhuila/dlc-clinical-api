@@ -44,6 +44,18 @@ func (f *fakeCoordination) FinishIntent(_ context.Context, op, state string) err
 	return nil
 }
 
+func (f *fakeCoordination) FenceIntent(_ context.Context, op string) (bool, error) {
+	w, ok := f.intents[op]
+	if !ok {
+		return false, out.ErrNotFound
+	}
+	if !w.Committed {
+		w.Fenced = true
+		f.intents[op] = w
+	}
+	return w.Committed, nil
+}
+
 func (f *fakeCoordination) GetIntent(_ context.Context, op string) (out.WriteIntent, error) {
 	w, ok := f.intents[op]
 	if !ok {

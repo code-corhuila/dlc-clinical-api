@@ -33,6 +33,7 @@ type intentDoc struct {
 	ConsultationID   string     `bson:"consultationId,omitempty"`
 	GuardID          string     `bson:"guardId,omitempty"`
 	CommittedAt      *time.Time `bson:"committedAt,omitempty"`
+	FencedAt         *time.Time `bson:"fencedAt,omitempty"`
 	State            string     `bson:"state"`
 	CreatedAt        time.Time  `bson:"createdAt"`
 	UpdatedAt        time.Time  `bson:"updatedAt"`
@@ -41,7 +42,7 @@ type intentDoc struct {
 func (d intentDoc) model() out.WriteIntent {
 	return out.WriteIntent{OperationID: d.OperationID, Kind: d.Kind, PatientID: d.PatientID,
 		Encounter: out.EncounterKey{RecordID: d.ClinicalRecordID, ConsultationID: d.ConsultationID},
-		GuardID:   d.GuardID, Committed: d.CommittedAt != nil, State: d.State, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt}
+		GuardID:   d.GuardID, Committed: d.CommittedAt != nil, Fenced: d.FencedAt != nil, State: d.State, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt}
 }
 
 type admissionEntry struct {
@@ -105,6 +106,17 @@ func (m *Mongo) FinishIntent(ctx context.Context, operationID, state string) err
 		return nil
 	}
 	return out.ErrIntentSettled
+}
+
+func (m *Mongo) FenceIntent(ctx context.Context, operationID string) (bool, error) {
+	_, err := m.intents().UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: operationID}, {Key: "committedAt", Value: bson.D{{Key: "$exists", Value: false}}}, {Key: "fencedAt", Value: bson.D{{Key: "$exists", Value: false}}}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "fencedAt", Value: now()}, {Key: "updatedAt", Value: now()}}}})
+	if err != nil {
+		return false, err
+	}
+	w, err := m.GetIntent(ctx, operationID)
+	return w.Committed, err
 }
 
 func (m *Mongo) GetIntent(ctx context.Context, operationID string) (out.WriteIntent, error) {
@@ -235,7 +247,8 @@ func (m *Mongo) recordWrite(tx context.Context, idem out.IdempotencyRecord) erro
 		set = append(set, bson.E{Key: "state", Value: out.IntentCompleted})
 	}
 	res, err := m.intents().UpdateOne(tx,
-		bson.D{{Key: "_id", Value: tag.OperationID}, {Key: "state", Value: out.IntentPending}, {Key: "committedAt", Value: bson.D{{Key: "$exists", Value: false}}}},
+		bson.D{{Key: "_id", Value: tag.OperationID}, {Key: "state", Value: out.IntentPending}, {Key: "committedAt", Value: bson.D{{Key: "$exists", Value: false}}},
+			{Key: "fencedAt", Value: bson.D{{Key: "$exists", Value: false}}}},
 		bson.D{{Key: "$set", Value: set}})
 	if err != nil {
 		return err

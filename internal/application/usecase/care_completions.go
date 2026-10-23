@@ -96,10 +96,9 @@ func (s *CareCompletionService) close(ctx context.Context, cmd in.DeclareCareCom
 	tagged := out.WithWriteTag(ctx, out.WriteTag{OperationID: d.intent.OperationID, Complete: true})
 	closure, err := s.commitDeclaration(tagged, cmd, rec, charges)
 	if err != nil {
-		if stored, rerr := s.Intents.GetIntent(ctx, d.intent.OperationID); rerr != nil || stored.Committed {
-			return in.CareClosureResult{}, err // committed or unknown: the reconciler keeps or releases
+		if committed := d.reject(ctx); committed {
+			return in.CareClosureResult{}, err // the declaration holds; a retry replays it
 		}
-		d.reject(ctx)
 		if errors.Is(err, out.ErrDuplicateIdempotency) {
 			res, _, rerr := s.replay(ctx, cmd)
 			return res, rerr
@@ -132,18 +131,27 @@ func (d *declaration) freezeCharges(ctx context.Context) ([]string, error) {
 	return settlement.ChargeIDs, nil
 }
 
-// reject releases both freezes and aborts the intent (§6.5). Billing never
-// releases on its own, so an unconfirmed release keeps everything PENDING
-// for the reconciler instead of reopening the encounter early.
-func (d *declaration) reject(ctx context.Context) {
+// reject fences the intent, then releases both freezes and aborts it (§6.5).
+// It reports committed=true, and changes nothing, when the declaration did
+// commit. Billing never releases on its own, so an unconfirmed release keeps
+// everything PENDING for the reconciler instead of reopening the encounter.
+func (d *declaration) reject(ctx context.Context) (committed bool) {
 	k, op := d.intent.Encounter, d.intent.OperationID
+	committed, err := d.svc.Intents.FenceIntent(ctx, op)
+	if err != nil || committed {
+		if committed {
+			_ = d.svc.Intents.FinishIntent(ctx, op, out.IntentCompleted)
+		}
+		return committed
+	}
 	if d.billingAsked && d.svc.Billing.ReleaseManualChargeFreeze(ctx, k.RecordID, k.ConsultationID, op) != nil {
-		return
+		return false
 	}
 	if d.svc.Admissions.Unfreeze(ctx, k, op) != nil {
-		return
+		return false
 	}
 	_ = d.svc.Intents.FinishIntent(ctx, op, out.IntentAborted)
+	return false
 }
 
 // commitDeclaration commits the closure with the frozen source set and its
