@@ -55,17 +55,19 @@ func (r *fakeEntries) ListEntries(_ context.Context, recordID string, offset, li
 
 type entryFixture struct {
 	fixture
-	entries *fakeEntries
-	svc     *EntryService
-	rec1    string // record of pat-1 (assigned to dentist-1)
-	rec3    string // record of pat-3 (not assigned)
+	entries    *fakeEntries
+	encounters *fakeEncounters
+	svc        *EntryService
+	rec1       string // record of pat-1 (assigned to dentist-1)
+	rec3       string // record of pat-3 (not assigned)
 }
 
 func setupEntries(t *testing.T) entryFixture {
 	f := setup()
 	e := &fakeEntries{entries: map[string]model.Entry{}, idem: map[string]out.IdempotencyRecord{}}
 	ef := entryFixture{fixture: f, entries: e}
-	ef.svc = &EntryService{Records: f.repo, Entries: e, Care: f.care, Patients: f.patients, Clock: f.svc.Clock, IDs: f.svc.IDs}
+	ef.encounters = &fakeEncounters{closed: map[string]bool{}}
+	ef.svc = &EntryService{Records: f.repo, Entries: e, Closures: ef.encounters, Care: f.care, Patients: f.patients, Clock: f.svc.Clock, IDs: f.svc.IDs}
 	r1, err := open(f, admin, "pat-1", "rec-key-1", "h")
 	r3, err3 := open(f, admin, "pat-3", "rec-key-3", "h")
 	if err != nil || err3 != nil {
