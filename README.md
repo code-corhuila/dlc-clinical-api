@@ -71,6 +71,16 @@ go vet ./...
 go test ./...
 ```
 
+Coverage baseline (DoD: it must not decrease): **91.1%** of `internal/` with the integration tests,
+measured against a MongoDB replica set migrated by `dlc-clinical-db` and a RabbitMQ broker. The
+`cmd/` composition roots are excluded; without `TEST_MONGO_URI` and `TEST_RABBITMQ_URL` the
+integration tests are skipped and the figure is lower.
+
+```bash
+TEST_MONGO_URI=... TEST_RABBITMQ_URL=... go test -p 1 -coverpkg=./internal/... -coverprofile=cover.out ./internal/...
+go tool cover -func=cover.out | tail -1
+```
+
 ## Documentation
 
 The authoritative specifications and governance live in

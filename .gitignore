@@ -17,3 +17,4 @@ coverage.*
 .idea/
 .vscode/
 .DS_Store
+cover.out

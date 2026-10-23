@@ -52,3 +52,25 @@ func TestMemoryClosuresDeclareOncePerEncounter(t *testing.T) {
 		t.Fatal("a rejected declaration leaves nothing behind")
 	}
 }
+
+func TestMemoryRetryClosureOnlyFromItsVersion(t *testing.T) {
+	m := NewMemory()
+	now := time.Now()
+	_ = m.CreateRecord(ctx, rec("r1", "p1", now), key("k-rec", "r1"))
+	c := closure("cc1", "r1", "c1", 2, now)
+	_ = m.DeclareCareCompletion(ctx, c, 1, key("k-decl", "cc1"), nil)
+	retried := c
+	retried.Version = 2
+	if err := m.RetryClosure(ctx, retried, 1, key("k-retry", "cc1")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.GetClosure(ctx, "cc1"); got.Version != 2 {
+		t.Fatalf("closure = %+v", got)
+	}
+	if err := m.RetryClosure(ctx, retried, 1, key("k-retry-2", "cc1")); !errors.Is(err, out.ErrVersionConflict) {
+		t.Fatalf("a stale retry is rejected: %v", err)
+	}
+	if err := m.RetryClosure(ctx, retried, 2, key("k-retry", "cc1")); !errors.Is(err, out.ErrDuplicateIdempotency) {
+		t.Fatalf("a reused key is a duplicate: %v", err)
+	}
+}

@@ -20,18 +20,28 @@ type fakeCoordination struct {
 	acquireErr error
 	resolveErr error
 	resolved   map[string]string // guardId -> outcome
+	fail       map[string]error  // store operation -> injected failure
 }
 
+// failing returns the injected failure of a store operation, if any.
+func (f *fakeCoordination) failing(op string) error { return f.fail[op] }
+
 func newCoordination() *fakeCoordination {
-	return &fakeCoordination{intents: map[string]out.WriteIntent{}, admissions: map[string]string{}, resolved: map[string]string{}}
+	return &fakeCoordination{intents: map[string]out.WriteIntent{}, admissions: map[string]string{}, resolved: map[string]string{}, fail: map[string]error{}}
 }
 
 func (f *fakeCoordination) SaveIntent(_ context.Context, w out.WriteIntent) error {
+	if err := f.failing("SaveIntent"); err != nil {
+		return err
+	}
 	f.intents[w.OperationID] = w
 	return nil
 }
 
 func (f *fakeCoordination) AttachGuard(_ context.Context, op, guard string) error {
+	if err := f.failing("AttachGuard"); err != nil {
+		return err
+	}
 	w := f.intents[op]
 	w.GuardID = guard
 	f.intents[op] = w
@@ -39,6 +49,9 @@ func (f *fakeCoordination) AttachGuard(_ context.Context, op, guard string) erro
 }
 
 func (f *fakeCoordination) FinishIntent(_ context.Context, op, state string) error {
+	if err := f.failing("FinishIntent"); err != nil {
+		return err
+	}
 	w := f.intents[op]
 	w.State = state
 	f.intents[op] = w
@@ -46,6 +59,9 @@ func (f *fakeCoordination) FinishIntent(_ context.Context, op, state string) err
 }
 
 func (f *fakeCoordination) FenceIntent(_ context.Context, op string) (bool, error) {
+	if err := f.failing("FenceIntent"); err != nil {
+		return false, err
+	}
 	w, ok := f.intents[op]
 	if !ok {
 		return false, out.ErrNotFound
@@ -66,6 +82,9 @@ func (f *fakeCoordination) GetIntent(_ context.Context, op string) (out.WriteInt
 }
 
 func (f *fakeCoordination) PendingIntents(_ context.Context, limit int) ([]out.WriteIntent, error) {
+	if err := f.failing("PendingIntents"); err != nil {
+		return nil, err
+	}
 	var pending []out.WriteIntent
 	for _, w := range f.intents {
 		if w.State == out.IntentPending {
@@ -88,6 +107,9 @@ func (f *fakeCoordination) Admit(_ context.Context, _ out.EncounterKey, op strin
 }
 
 func (f *fakeCoordination) AbortAdmission(_ context.Context, _ out.EncounterKey, op string) error {
+	if err := f.failing("AbortAdmission"); err != nil {
+		return err
+	}
 	if f.admissions[op] == "ADMITTED" {
 		f.admissions[op] = "ABORTED"
 	}
@@ -95,6 +117,9 @@ func (f *fakeCoordination) AbortAdmission(_ context.Context, _ out.EncounterKey,
 }
 
 func (f *fakeCoordination) BeginDeclaration(_ context.Context, w out.WriteIntent) (int, error) {
+	if err := f.failing("BeginDeclaration"); err != nil {
+		return 0, err
+	}
 	if f.frozenBy != "" && f.frozenBy != w.OperationID {
 		return 0, out.ErrEncounterFrozen
 	}
@@ -109,6 +134,9 @@ func (f *fakeCoordination) BeginDeclaration(_ context.Context, w out.WriteIntent
 }
 
 func (f *fakeCoordination) Unfreeze(_ context.Context, _ out.EncounterKey, op string) error {
+	if err := f.failing("Unfreeze"); err != nil {
+		return err
+	}
 	if f.frozenBy == op {
 		f.frozenBy = ""
 	}
