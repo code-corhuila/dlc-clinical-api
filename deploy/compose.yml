@@ -9,6 +9,14 @@ services:
     env_file: ../.env
     expose: ["8080"]
     networks: [platform]
+  # Publishes committed outbox events (Norma 5.3.11): same image, separate process.
+  clinical-outbox-relay:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    entrypoint: ["/clinical-outbox-relay"]
+    env_file: ../.env
+    networks: [platform]
 networks:
   platform:
     name: ${PLATFORM_NETWORK_NAME:-platform}
