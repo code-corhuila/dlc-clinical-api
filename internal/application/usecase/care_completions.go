@@ -26,6 +26,8 @@ type CareCompletionService struct {
 	Patients     out.PatientDirectory
 	Appointments out.AppointmentAuthority
 	Billing      out.BillingAuthority
+	Intents      out.IntentStore
+	Admissions   out.AdmissionStore
 	Clock        out.Clock
 	IDs          out.IDGenerator
 }
@@ -62,47 +64,86 @@ func (s *CareCompletionService) Declare(ctx context.Context, cmd in.DeclareCareC
 	} else if declared {
 		return in.CareClosureResult{}, careStateConflict()
 	}
+	return s.close(ctx, cmd, rec)
+}
+
+// close runs the ADR-017 §6 closing sequence. The DECLARATION intent and the
+// local freeze are saved first, so a crash at any later step is reconciled
+// from Clinical's own data: kept if the declaration committed, else released.
+func (s *CareCompletionService) close(ctx context.Context, cmd in.DeclareCareCompletionCommand, rec model.ClinicalRecord) (in.CareClosureResult, error) {
+	now := s.Clock.Now()
+	d := declaration{svc: s, intent: out.WriteIntent{OperationID: s.IDs.NewID(), Kind: out.IntentDeclaration, PatientID: rec.PatientID,
+		Encounter: out.EncounterKey{RecordID: rec.ID, ConsultationID: cmd.ConsultationID}, State: out.IntentPending, CreatedAt: now, UpdatedAt: now}}
+	pending, err := s.Admissions.BeginDeclaration(ctx, d.intent)
+	switch {
+	case errors.Is(err, out.ErrEncounterFrozen):
+		return in.CareClosureResult{}, careStateConflict()
+	case err != nil:
+		return in.CareClosureResult{}, err
+	case pending > 0:
+		d.reject(ctx)
+		return in.CareClosureResult{}, careStateConflict()
+	}
 	if _, err := attendingEncounter(ctx, s.Appointments, cmd.AppointmentID, rec.PatientID, cmd.Actor.ID); err != nil {
+		d.reject(ctx)
 		return in.CareClosureResult{}, err
 	}
-	operationID := s.IDs.NewID()
-	charges, err := s.freezeCharges(ctx, rec.ID, cmd.ConsultationID, operationID)
+	charges, err := d.freezeCharges(ctx)
 	if err != nil {
+		d.reject(ctx)
 		return in.CareClosureResult{}, err
 	}
-	closure, err := s.commitDeclaration(ctx, cmd, rec, charges)
+	tagged := out.WithWriteTag(ctx, out.WriteTag{OperationID: d.intent.OperationID, Complete: true})
+	closure, err := s.commitDeclaration(tagged, cmd, rec, charges)
 	if err != nil {
-		s.releaseCharges(ctx, rec.ID, cmd.ConsultationID, operationID)
-	}
-	if errors.Is(err, out.ErrDuplicateIdempotency) {
-		res, _, rerr := s.replay(ctx, cmd)
-		return res, rerr
-	}
-	if err != nil {
+		if stored, rerr := s.Intents.GetIntent(ctx, d.intent.OperationID); rerr != nil || stored.Committed {
+			return in.CareClosureResult{}, err // committed or unknown: the reconciler keeps or releases
+		}
+		d.reject(ctx)
+		if errors.Is(err, out.ErrDuplicateIdempotency) {
+			res, _, rerr := s.replay(ctx, cmd)
+			return res, rerr
+		}
 		return in.CareClosureResult{}, err
 	}
+	_ = s.Intents.FinishIntent(ctx, d.intent.OperationID, out.IntentCompleted)
 	return in.CareClosureResult{Closure: closure}, nil
 }
 
-// freezeCharges freezes the encounter's manual charges in Billing (ADR-017
-// §6.3). Unsettled writes reject the declaration (409) and release the freeze.
-func (s *CareCompletionService) freezeCharges(ctx context.Context, recordID, consultationID, operationID string) ([]string, error) {
-	settlement, err := s.Billing.FreezeManualCharges(ctx, recordID, consultationID, operationID)
+// declaration is one attempt of the closing sequence.
+type declaration struct {
+	svc          *CareCompletionService
+	intent       out.WriteIntent
+	billingAsked bool // Billing may hold a freeze for this operationId
+}
+
+// freezeCharges freezes the encounter's manual charges in Billing (§6.3).
+// Unsettled writes reject the declaration with 409.
+func (d *declaration) freezeCharges(ctx context.Context) ([]string, error) {
+	d.billingAsked = true
+	k := d.intent.Encounter
+	settlement, err := d.svc.Billing.FreezeManualCharges(ctx, k.RecordID, k.ConsultationID, d.intent.OperationID)
 	if err != nil {
-		s.releaseCharges(ctx, recordID, consultationID, operationID)
 		return nil, unavailable("billing authority", err)
 	}
 	if !settlement.Settled || settlement.PendingWrites > 0 {
-		s.releaseCharges(ctx, recordID, consultationID, operationID)
 		return nil, careStateConflict()
 	}
 	return settlement.ChargeIDs, nil
 }
 
-// releaseCharges lets care continue after a rejected declaration. A failed
-// release is left to the intent reconciliation; it never blocks the answer.
-func (s *CareCompletionService) releaseCharges(ctx context.Context, recordID, consultationID, operationID string) {
-	_ = s.Billing.ReleaseManualChargeFreeze(ctx, recordID, consultationID, operationID)
+// reject releases both freezes and aborts the intent (§6.5). Billing never
+// releases on its own, so an unconfirmed release keeps everything PENDING
+// for the reconciler instead of reopening the encounter early.
+func (d *declaration) reject(ctx context.Context) {
+	k, op := d.intent.Encounter, d.intent.OperationID
+	if d.billingAsked && d.svc.Billing.ReleaseManualChargeFreeze(ctx, k.RecordID, k.ConsultationID, op) != nil {
+		return
+	}
+	if d.svc.Admissions.Unfreeze(ctx, k, op) != nil {
+		return
+	}
+	_ = d.svc.Intents.FinishIntent(ctx, op, out.IntentAborted)
 }
 
 // commitDeclaration commits the closure with the frozen source set and its

@@ -67,11 +67,12 @@ func (r *fakeClosures) DeclareCareCompletion(_ context.Context, c model.CareClos
 
 // fakeBilling freezes an encounter's charges and records every release.
 type fakeBilling struct {
-	charges  []string
-	pending  int
-	err      error
-	frozen   []string
-	released []string
+	charges    []string
+	pending    int
+	err        error
+	frozen     []string
+	released   []string
+	releaseErr error
 }
 
 func (b *fakeBilling) FreezeManualCharges(_ context.Context, _, _, operationID string) (out.ManualChargeSettlement, error) {
@@ -81,7 +82,7 @@ func (b *fakeBilling) FreezeManualCharges(_ context.Context, _, _, operationID s
 
 func (b *fakeBilling) ReleaseManualChargeFreeze(_ context.Context, _, _, operationID string) error {
 	b.released = append(b.released, operationID)
-	return nil
+	return b.releaseErr
 }
 
 type closureFixture struct {
@@ -104,7 +105,7 @@ func setupClosures(t *testing.T) closureFixture {
 		billing:      &fakeBilling{charges: []string{"charge-1"}},
 		appointments: &fakeAppointments{inAttention: true, patientID: "pat-1", dentistID: dentist.ID}}
 	cf.svc = &CareCompletionService{Records: ef.repo, Entries: ef.entries, Closures: cf.closures, Care: ef.care, Patients: ef.patients,
-		Appointments: cf.appointments, Billing: cf.billing, Clock: ef.svc.Clock, IDs: ef.svc.IDs}
+		Appointments: cf.appointments, Billing: cf.billing, Intents: ef.coord, Admissions: ef.coord, Clock: ef.svc.Clock, IDs: ef.svc.IDs}
 	return cf
 }
 
@@ -313,5 +314,65 @@ func TestRetryClosureRules(t *testing.T) {
 	cf := setupClosures(t)
 	if _, err := cf.retry(dentist, "missing", 1, "k-r-02"); kindOf(t, err) != model.KindNotFound {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestDeclarationHoldsTheEncounterFreeze(t *testing.T) {
+	cf := setupClosures(t)
+	if _, err := cf.declare(dentist, "k-hold-01"); err != nil {
+		t.Fatal(err)
+	}
+	w, ok := cf.coord.declaration()
+	if !ok || w.State != out.IntentCompleted || w.Encounter != (out.EncounterKey{RecordID: cf.rec1, ConsultationID: cf.consultation}) ||
+		cf.coord.frozenBy != w.OperationID || !slices.Equal(cf.billing.frozen, []string{w.OperationID}) || len(cf.billing.released) != 0 {
+		t.Fatalf("intent %+v frozenBy %q billing %v/%v", w, cf.coord.frozenBy, cf.billing.frozen, cf.billing.released)
+	}
+	if _, err := cf.record(dentist, cf.rec1, model.KindEvolution, "k-hold-02"); kindOf(t, err) != model.KindConflict {
+		t.Fatalf("the declared encounter admits no new write: %v", err)
+	}
+}
+
+func TestRejectedDeclarationReleasesBothFreezes(t *testing.T) {
+	cases := map[string]struct {
+		prep    func(closureFixture)
+		billing bool // whether Billing was frozen
+	}{
+		"admitted write pending":  {func(cf closureFixture) { cf.coord.admissions["op-w"] = "ADMITTED" }, false},
+		"not in attention":        {func(cf closureFixture) { cf.appointments.inAttention = false }, false},
+		"billing writes pending":  {func(cf closureFixture) { cf.billing.pending = 1 }, true},
+		"billing unavailable":     {func(cf closureFixture) { cf.billing.err = out.ErrUnavailable }, true},
+		"commit lost to a writer": {func(cf closureFixture) { cf.closures.commitErr = out.ErrVersionConflict }, true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cf := setupClosures(t)
+			tc.prep(cf)
+			if _, err := cf.declare(dentist, "k-rej-01"); err == nil {
+				t.Fatal("expected a rejection")
+			}
+			w, _ := cf.coord.declaration()
+			if w.State != out.IntentAborted || cf.coord.frozenBy != "" || (len(cf.billing.frozen) == 1) != tc.billing || !slices.Equal(cf.billing.released, cf.billing.frozen) {
+				t.Fatalf("intent %+v frozenBy %q billing %v/%v", w, cf.coord.frozenBy, cf.billing.frozen, cf.billing.released)
+			}
+		})
+	}
+}
+
+func TestConcurrentDeclarationIsRejectedWhileTheFreezeIsHeld(t *testing.T) {
+	cf := setupClosures(t)
+	cf.coord.frozenBy = "op-other"
+	if _, err := cf.declare(dentist, "k-conc-01"); kindOf(t, err) != model.KindConflict || len(cf.billing.frozen) != 0 {
+		t.Fatalf("got %v, billing %v", err, cf.billing.frozen)
+	}
+}
+
+func TestUnreleasedBillingFreezeIsLeftToTheReconciler(t *testing.T) {
+	cf := setupClosures(t)
+	cf.billing.pending, cf.billing.releaseErr = 1, out.ErrUnavailable
+	if _, err := cf.declare(dentist, "k-unrel-01"); err == nil {
+		t.Fatal("expected a rejection")
+	}
+	if w, _ := cf.coord.declaration(); w.State != out.IntentPending || cf.coord.frozenBy != w.OperationID {
+		t.Fatalf("intent %+v frozenBy %q: both stay until Billing confirms the release", w, cf.coord.frozenBy)
 	}
 }

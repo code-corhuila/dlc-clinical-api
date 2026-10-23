@@ -78,7 +78,7 @@ func run(logger *slog.Logger) error {
 	routes = append(routes, httpapi.ProcedureRoutes(procedures)...)
 	careCompletions := &usecase.CareCompletionService{
 		Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
-		Appointments: own.appointments, Billing: own.billing,
+		Appointments: own.appointments, Billing: own.billing, Intents: store, Admissions: store,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes = append(routes, httpapi.CareCompletionRoutes(careCompletions)...)
