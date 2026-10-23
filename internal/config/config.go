@@ -95,6 +95,9 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if err := loadOwners(lookup, &cfg); err != nil {
 		return Config{}, err
 	}
+	if cfg.AuthURL == "" && cfg.AppEnv != "dev" {
+		return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
+	}
 	return cfg, nil
 }
 
@@ -161,9 +164,6 @@ func loadOwners(lookup func(string) (string, bool), cfg *Config) error {
 		return err
 	}
 	cfg.InternalTimeout = timeout
-	if cfg.AuthURL == "" && cfg.AppEnv != "dev" {
-		return fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
-	}
 	if (cfg.AuthURL != "" || cfg.PatientsURL != "" || cfg.AppointmentsURL != "" || cfg.BillingURL != "") && (cfg.ServiceToken == "") == (cfg.ServiceTokenFile == "") {
 		return fmt.Errorf("set exactly one of SERVICE_TOKEN or SERVICE_TOKEN_FILE when an internal owner URL is configured")
 	}
