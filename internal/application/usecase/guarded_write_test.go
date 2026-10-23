@@ -14,7 +14,8 @@ import (
 type fakeCoordination struct {
 	intents    map[string]out.WriteIntent
 	admissions map[string]string // operationId -> ADMITTED|COMMITTED|ABORTED
-	frozen     bool
+	frozen     bool              // the encounter rejects admissions
+	frozenBy   string            // operationId of the declaration holding the freeze
 	acquireErr error
 	resolveErr error
 	resolved   map[string]string // guardId -> outcome
@@ -56,7 +57,7 @@ func (f *fakeCoordination) PendingIntents(context.Context, int) ([]out.WriteInte
 }
 
 func (f *fakeCoordination) Admit(_ context.Context, _ out.EncounterKey, op string) error {
-	if f.frozen {
+	if f.frozen || f.frozenBy != "" {
 		return out.ErrEncounterFrozen
 	}
 	f.admissions[op] = "ADMITTED"
@@ -70,10 +71,36 @@ func (f *fakeCoordination) AbortAdmission(_ context.Context, _ out.EncounterKey,
 	return nil
 }
 
-func (f *fakeCoordination) BeginDeclaration(context.Context, out.WriteIntent) (int, error) {
-	return 0, nil
+func (f *fakeCoordination) BeginDeclaration(_ context.Context, w out.WriteIntent) (int, error) {
+	if f.frozenBy != "" && f.frozenBy != w.OperationID {
+		return 0, out.ErrEncounterFrozen
+	}
+	f.intents[w.OperationID], f.frozenBy = w, w.OperationID
+	pending := 0
+	for _, state := range f.admissions {
+		if state == "ADMITTED" {
+			pending++
+		}
+	}
+	return pending, nil
 }
-func (f *fakeCoordination) Unfreeze(context.Context, out.EncounterKey, string) error { return nil }
+
+func (f *fakeCoordination) Unfreeze(_ context.Context, _ out.EncounterKey, op string) error {
+	if f.frozenBy == op {
+		f.frozenBy = ""
+	}
+	return nil
+}
+
+// declaration returns the DECLARATION intent of a test, if any.
+func (f *fakeCoordination) declaration() (out.WriteIntent, bool) {
+	for _, w := range f.intents {
+		if w.Kind == out.IntentDeclaration {
+			return w, true
+		}
+	}
+	return out.WriteIntent{}, false
+}
 
 func (f *fakeCoordination) AcquireActivityGuard(_ context.Context, _, op string) (out.Guard, error) {
 	if f.acquireErr != nil {
