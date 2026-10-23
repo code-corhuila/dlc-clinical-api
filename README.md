@@ -9,7 +9,9 @@ the Clinical database as an integration mechanism.
 ## Scope
 
 Clinical owns histories, antecedents, allergies, consultations, diagnoses, treatments,
-procedures, clinical evolution and the `ProcedureCompleted` outbox event. It does not own
+procedures, clinical evolution, the care-completions declaration and its closure, and the
+Clinical outbox events (`ProcedureCompleted`, `ClinicalCareCompleted` and the others of the
+contract). It does not own
 administrative patient data, appointment scheduling, billing/money, IAM, sessions or the
 cross-domain saga/workflow.
 
@@ -28,8 +30,11 @@ this API repository.
 
 ## Run locally
 
-Requires Go 1.26. Variables are listed in [`.env.example`](.env.example); every server limit is
-declared there and zero values are rejected because they mean "no limit".
+Requires Go 1.26 and a MongoDB replica set migrated by `dlc-clinical-db`. Variables are listed in
+[`.env.example`](.env.example); every limit is declared there and zero values are rejected because
+they mean "no limit". Each owner contract (`AUTH_`, `PATIENTS_`, `APPOINTMENTS_`,
+`BILLING_INTERNAL_URL`) is optional in `dev`; an owner left empty answers 503, so its
+operations fail closed instead of trusting an unverified state.
 
 ```bash
 cp .env.example .env
@@ -46,12 +51,15 @@ docker compose -f deploy/compose.yml up --build
 ## Layout (Anexo C, Go)
 
 ```text
-cmd/clinical-api/            composition root and explicit limits
+cmd/clinical-api/            HTTP API composition root and explicit limits
+cmd/clinical-outbox-relay/   publishes committed outbox events to RabbitMQ
+cmd/clinical-inbox-consumer/ applies closure outcome events through the inbox
+cmd/clinical-intent-reconciler/ settles ADR-017 write intents left PENDING
 internal/config/             validated configuration
 internal/domain/model/       entities, value objects, invariants (no framework imports)
 internal/application/        inbound/outbound ports and one use case per operation
 internal/adapter/in/httpapi/ routes, validation, error envelope, correlation, JWT
-internal/adapter/out/        MongoDB persistence and messaging
+internal/adapter/out/        MongoDB persistence, messaging and owner contracts (/internal/v1)
 deploy/                      Dockerfile and compose (no database, no volume)
 ```
 
