@@ -50,7 +50,8 @@ type uuids struct{}
 func (uuids) NewID() string { return newUUID() }
 
 func recordsRouter(care out.CareAuthority, patients out.PatientDirectory) http.Handler {
-	svc := &usecase.RecordService{Repo: persistence.NewMemory(), Care: care, Patients: patients, Clock: &clock{t: testNow}, IDs: uuids{}}
+	store := persistence.NewMemory()
+	svc := &usecase.RecordService{Repo: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: &clock{t: testNow}, IDs: uuids{}}
 	return NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Routes: RecordRoutes(svc)})
 }
 
@@ -196,4 +197,17 @@ func TestListAndReadRecords(t *testing.T) {
 			t.Errorf("%s = %d, want %d (%s)", path, rec.Code, want, rec.Body.String())
 		}
 	}
+}
+
+// openGate grants every activity guard, as Appointments does for an active patient.
+type openGate struct{}
+
+func (openGate) AcquireActivityGuard(_ context.Context, _, op string) (out.Guard, error) {
+	return out.Guard{ID: op, State: out.GuardOpen, Token: "t"}, nil
+}
+
+func (openGate) ResolveGuard(context.Context, string, string, string) error { return nil }
+
+func testGuard(store *persistence.Memory, care out.CareAuthority, patients out.PatientDirectory) *usecase.GuardedWrites {
+	return &usecase.GuardedWrites{Intents: store, Admissions: store, Gate: openGate{}, Care: care, Patients: patients, Clock: &clock{t: testNow}, IDs: uuids{}}
 }
