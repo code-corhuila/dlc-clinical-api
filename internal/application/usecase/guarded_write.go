@@ -93,11 +93,7 @@ func (g *GuardedWrites) Run(ctx context.Context, w GuardedWrite) error {
 	}
 	tag := out.WriteTag{OperationID: op, Encounter: w.Encounter}
 	if err := w.Commit(out.WithWriteTag(ctx, tag)); err != nil {
-		if stored, rerr := g.Intents.GetIntent(ctx, op); rerr == nil && !stored.Committed {
-			g.abort(ctx, w, op, guard)
-		} else if rerr == nil {
-			g.finalize(ctx, op, guard)
-		}
+		g.abort(ctx, w, op, guard) // decides from the commit mark
 		return err
 	}
 	g.finalize(ctx, op, guard)
@@ -128,9 +124,19 @@ func (g *GuardedWrites) finalize(ctx context.Context, op string, guard out.Guard
 	}
 }
 
-// abort ends a write proven not to commit: its admission, its guard (when
-// acquired) and its intent. A failed step leaves the intent to the reconciler.
+// abort ends a write that did not commit. The fence comes first, so a late
+// commit of the same write is rejected; a write that did commit is finalized
+// instead. Then admission, guard (when acquired) and intent are aborted; a
+// failed step leaves the intent to the reconciler.
 func (g *GuardedWrites) abort(ctx context.Context, w GuardedWrite, op string, guard out.Guard) {
+	committed, err := g.Intents.FenceIntent(ctx, op)
+	if err != nil {
+		return
+	}
+	if committed {
+		g.finalize(ctx, op, guard)
+		return
+	}
 	if w.Encounter != nil && g.Admissions.AbortAdmission(ctx, *w.Encounter, op) != nil {
 		return
 	}

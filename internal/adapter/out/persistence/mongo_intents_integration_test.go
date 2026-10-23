@@ -121,3 +121,28 @@ func TestMongoTaggedWriteCommitsItsIntentAndAdmission(t *testing.T) {
 		t.Fatal("nor its idempotency key")
 	}
 }
+
+func TestMongoFenceExcludesALateCommit(t *testing.T) {
+	m := newTestMongo(t)
+	cleanIntents(t, m)
+	at := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
+	_ = m.SaveIntent(ctx, intent(opWrite1, out.IntentGuardedWrite))
+	if committed, err := m.FenceIntent(ctx, opWrite1); err != nil || committed {
+		t.Fatalf("fence = %v %v", committed, err)
+	}
+	if committed, err := m.FenceIntent(ctx, opWrite1); err != nil || committed {
+		t.Fatal("fencing again is a no-op")
+	}
+	tagged := out.WithWriteTag(ctx, out.WriteTag{OperationID: opWrite1})
+	if err := m.CreateEntry(tagged, kindEntry("e-f1", model.KindEvolution, at), entryKey("key-fence-01", "e-f1", at), nil); !errors.Is(err, out.ErrIntentSettled) {
+		t.Fatalf("a fenced intent rejects its late write: %v", err)
+	}
+	_ = m.SaveIntent(ctx, intent(opWrite2, out.IntentGuardedWrite))
+	_ = m.CreateEntry(out.WithWriteTag(ctx, out.WriteTag{OperationID: opWrite2}), kindEntry("e-f2", model.KindEvolution, at), entryKey("key-fence-02", "e-f2", at), nil)
+	if committed, err := m.FenceIntent(ctx, opWrite2); err != nil || !committed {
+		t.Fatalf("a committed intent is never fenced: %v %v", committed, err)
+	}
+	if w, _ := m.GetIntent(ctx, opWrite1); !w.Fenced || w.Committed {
+		t.Fatalf("intent = %+v", w)
+	}
+}
