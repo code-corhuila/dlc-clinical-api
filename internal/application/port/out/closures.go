@@ -38,3 +38,9 @@ type BillingAuthority interface {
 type EncounterGate interface {
 	Quiesce(ctx context.Context, recordID, consultationID, appointmentID string) error
 }
+
+// EncounterClosures finds the declared closures of an appointment; once one
+// exists the encounter is clinically closed for new writes (APT-012).
+type EncounterClosures interface {
+	FindClosuresByAppointment(ctx context.Context, appointmentID string) ([]model.CareClosure, error)
+}
