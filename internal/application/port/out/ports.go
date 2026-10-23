@@ -52,7 +52,7 @@ type RecordRepository interface {
 	FindIdempotency(ctx context.Context, actorID, operation, key string) (IdempotencyRecord, bool, error)
 	CreateRecord(ctx context.Context, rec model.ClinicalRecord, idem IdempotencyRecord) error
 	GetRecord(ctx context.Context, id string) (model.ClinicalRecord, error)
-	// ListRecords returns newest first and the total matching the filter.
+	// ListRecords returns oldest first and the total matching the filter.
 	ListRecords(ctx context.Context, f RecordFilter) ([]model.ClinicalRecord, int, error)
 }
 

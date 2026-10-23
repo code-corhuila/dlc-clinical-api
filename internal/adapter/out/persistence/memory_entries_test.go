@@ -34,7 +34,7 @@ func TestMemoryEntriesAreAtomicWithKeyAndOutbox(t *testing.T) {
 	}
 }
 
-func TestMemoryListEntriesNewestFirstPerRecord(t *testing.T) {
+func TestMemoryListEntriesOldestFirstPerRecord(t *testing.T) {
 	m := NewMemory()
 	base := time.Now()
 	for i, id := range []string{"a", "b", "c"} {
@@ -42,7 +42,7 @@ func TestMemoryListEntriesNewestFirstPerRecord(t *testing.T) {
 	}
 	_ = m.CreateEntry(ctx, entry("x", "r2", base), key("kx", "x"), nil)
 	items, total, _ := m.ListEntries(ctx, "r1", 1, 5)
-	if total != 3 || len(items) != 2 || items[0].ID != "b" || items[1].ID != "a" {
+	if total != 3 || len(items) != 2 || items[0].ID != "b" || items[1].ID != "c" {
 		t.Fatalf("got %d %+v", total, items)
 	}
 	if items, total, _ := m.ListEntries(ctx, "r1", 9, 5); total != 3 || len(items) != 0 {

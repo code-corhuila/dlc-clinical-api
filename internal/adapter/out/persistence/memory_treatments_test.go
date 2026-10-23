@@ -44,7 +44,7 @@ func TestMemoryTreatmentsCreateUpdateAndConflict(t *testing.T) {
 	}
 }
 
-func TestMemoryListTreatmentsScopedNewestFirst(t *testing.T) {
+func TestMemoryListTreatmentsScopedOldestFirst(t *testing.T) {
 	m := NewMemory()
 	base := time.Now()
 	for i, p := range []string{"p1", "p2", "p1"} {
@@ -52,7 +52,7 @@ func TestMemoryListTreatmentsScopedNewestFirst(t *testing.T) {
 		_ = m.CreateTreatment(ctx, treatment(id, p, base.Add(time.Duration(i)*time.Minute)), key("k"+id, id), nil)
 	}
 	items, total, _ := m.ListTreatments(ctx, out.RecordFilter{PatientIDs: []string{"p1"}, Limit: 5})
-	if total != 2 || len(items) != 2 || items[0].ID != "tc" || items[1].ID != "ta" {
+	if total != 2 || len(items) != 2 || items[0].ID != "ta" || items[1].ID != "tc" {
 		t.Fatalf("got %d %+v", total, items)
 	}
 }

@@ -60,7 +60,7 @@ func TestMongoEntriesRoundTripEveryKind(t *testing.T) {
 		}
 	}
 	items, total, err := m.ListEntries(ctx, "rec-1", 1, 2)
-	if err != nil || total != 5 || len(items) != 2 || items[0].Kind != model.KindAntecedent || items[1].Kind != model.KindEvolution {
+	if err != nil || total != 5 || len(items) != 2 || items[0].Kind != model.KindDiagnosis || items[1].Kind != model.KindEvolution {
 		t.Fatalf("unified list = %d %+v %v", total, items, err)
 	}
 	if items, total, _ := m.ListEntries(ctx, "other", 0, 5); total != 0 || len(items) != 0 {
