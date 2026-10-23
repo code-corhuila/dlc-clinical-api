@@ -24,12 +24,13 @@ type Memory struct {
 	procs   map[string]model.Procedure
 	sources map[string]bool
 	closure map[string]model.CareClosure
+	inbox   map[string]out.InboxRecord
 }
 
 // NewMemory returns an empty repository.
 func NewMemory() *Memory {
 	return &Memory{records: map[string]model.ClinicalRecord{}, keys: map[string]out.IdempotencyRecord{}, entries: map[string]model.Entry{}, treats: map[string]model.Treatment{},
-		procs: map[string]model.Procedure{}, sources: map[string]bool{}, closure: map[string]model.CareClosure{}}
+		procs: map[string]model.Procedure{}, sources: map[string]bool{}, closure: map[string]model.CareClosure{}, inbox: map[string]out.InboxRecord{}}
 }
 
 var (
