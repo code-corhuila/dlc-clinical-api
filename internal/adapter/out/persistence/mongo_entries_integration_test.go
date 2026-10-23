@@ -100,3 +100,21 @@ func TestMongoEntryOutboxIsAtomic(t *testing.T) {
 		t.Fatal("the event of a rejected write must roll back")
 	}
 }
+
+func TestMongoConsultationForAppointment(t *testing.T) {
+	m := newTestMongo(t)
+	cleanEntries(t, m)
+	at := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
+	for i, id := range []string{"cons-late", "cons-early"} {
+		e := kindEntry(id, model.KindConsultation, at.Add(time.Duration(1-i)*time.Minute))
+		if err := m.CreateEntry(ctx, e, entryKey("key-cfa-"+id, id, at), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if id, found, err := m.ConsultationForAppointment(ctx, "rec-1", "apt-1"); err != nil || !found || id != "cons-early" {
+		t.Fatalf("got %q %v %v", id, found, err)
+	}
+	if _, found, err := m.ConsultationForAppointment(ctx, "rec-1", "apt-9"); err != nil || found {
+		t.Fatalf("no consultation for another appointment: %v %v", found, err)
+	}
+}

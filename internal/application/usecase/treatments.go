@@ -25,6 +25,7 @@ type TreatmentService struct {
 	Closures   out.EncounterClosures
 	Care       out.CareAuthority
 	Patients   out.PatientDirectory
+	Guard      *GuardedWrites
 	Clock      out.Clock
 	IDs        out.IDGenerator
 }
@@ -93,7 +94,10 @@ func (s *TreatmentService) Plan(ctx context.Context, cmd in.PlanTreatmentCommand
 			"procedureCount": len(t.Procedures), "plannedAt": now.UTC().Format(time.RFC3339)},
 	}
 	idem := s.idempotency(cmd.Actor, OpPlanTreatment, cmd.IdempotencyKey, cmd.RequestHash, t.ID, statusCreated, now)
-	err = s.Treatments.CreateTreatment(ctx, t, idem, []out.OutboxEvent{event})
+	err = s.Guard.Run(ctx, GuardedWrite{Actor: cmd.Actor, PatientID: cmd.PatientID,
+		Commit: func(tagged context.Context) error {
+			return s.Treatments.CreateTreatment(tagged, t, idem, []out.OutboxEvent{event})
+		}})
 	if errors.Is(err, out.ErrDuplicateIdempotency) {
 		res, _, rerr := s.replay(ctx, cmd.Actor, OpPlanTreatment, cmd.IdempotencyKey, cmd.RequestHash)
 		return res, rerr
