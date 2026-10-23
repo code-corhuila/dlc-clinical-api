@@ -8,21 +8,21 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/correlation"
 )
 
 type ctxKey int
 
 const (
-	correlationKey ctxKey = iota
-	loggerKey
+	loggerKey ctxKey = iota
 	principalKey
 )
 
 const correlationHeader = "X-Correlation-Id"
 
 func correlationFrom(ctx context.Context) string {
-	id, _ := ctx.Value(correlationKey).(string)
-	return id
+	return correlation.ID(ctx)
 }
 
 func loggerFrom(ctx context.Context) *slog.Logger {
@@ -41,7 +41,7 @@ func withCorrelation(base *slog.Logger, next http.Handler) http.Handler {
 			id = newUUID()
 		}
 		w.Header().Set(correlationHeader, id)
-		ctx := context.WithValue(r.Context(), correlationKey, id)
+		ctx := correlation.WithID(r.Context(), id)
 		ctx = context.WithValue(ctx, loggerKey, base.With("correlationId", id))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

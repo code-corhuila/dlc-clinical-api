@@ -40,6 +40,7 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 		MongoDatabase:     "clinical",
 		MongoMaxPoolSize:  10,
 		MongoTimeout:      5 * time.Second,
+		InternalTimeout:   3 * time.Second,
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)
@@ -121,6 +122,27 @@ func TestLoadMongoSettings(t *testing.T) {
 	for _, bad := range []map[string]string{{"MONGO_MAX_POOL_SIZE": "0"}, {"MONGO_MAX_POOL_SIZE": "x"}, {"MONGO_MAX_POOL_SIZE": "500"}, {"MONGO_TIMEOUT": "0s"}, {"MONGO_DATABASE": ""}} {
 		if _, err := Load(env(bad)); err == nil {
 			t.Fatalf("%v must be rejected", bad)
+		}
+	}
+}
+
+func TestLoadInternalOwners(t *testing.T) {
+	cfg, err := Load(env(nil))
+	if err != nil || cfg.PatientsURL != "" || cfg.AppointmentsURL != "" || cfg.InternalTimeout != 3*time.Second {
+		t.Fatalf("owners are optional and fail closed when absent: %+v %v", cfg, err)
+	}
+	cfg, err = Load(env(map[string]string{"PATIENTS_INTERNAL_URL": "http://patients:8080", "APPOINTMENTS_INTERNAL_URL": "http://appointments:8080",
+		"SERVICE_TOKEN": "svc", "INTERNAL_TIMEOUT": "2s"}))
+	if err != nil || cfg.PatientsURL != "http://patients:8080" || cfg.AppointmentsURL != "http://appointments:8080" || cfg.ServiceToken != "svc" || cfg.InternalTimeout != 2*time.Second {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
+	for name, bad := range map[string]map[string]string{
+		"owner without token": {"PATIENTS_INTERNAL_URL": "http://patients:8080"},
+		"two token sources":   {"PATIENTS_INTERNAL_URL": "http://p", "SERVICE_TOKEN": "a", "SERVICE_TOKEN_FILE": "/run/secrets/t"},
+		"no call bound":       {"PATIENTS_INTERNAL_URL": "http://p", "SERVICE_TOKEN": "a", "INTERNAL_TIMEOUT": "0s"},
+	} {
+		if _, err := Load(env(bad)); err == nil {
+			t.Fatalf("%s must be rejected", name)
 		}
 	}
 }
