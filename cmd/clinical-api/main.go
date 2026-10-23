@@ -67,6 +67,13 @@ func run(logger *slog.Logger) error {
 	}
 	routes := append(httpapi.RecordRoutes(records), httpapi.EntryRoutes(entries)...)
 	routes = append(routes, httpapi.ProcedureRoutes(procedures)...)
+	// The cross-owner write gate and Billing are release gates: declarations fail closed (503).
+	careCompletions := &usecase.CareCompletionService{
+		Records: store, Entries: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Appointments: authority.Unavailable{}, Billing: authority.Unavailable{}, Gate: authority.Unavailable{},
+		Clock: system.Clock{}, IDs: system.UUIDs{},
+	}
+	routes = append(routes, httpapi.CareCompletionRoutes(careCompletions)...)
 	router := httpapi.NewRouter(httpapi.Options{
 		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now},
 		Logger:   logger,
