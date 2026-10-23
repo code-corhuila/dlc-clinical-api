@@ -56,12 +56,8 @@ func (s *ProcedureService) Complete(ctx context.Context, cmd in.CompleteProcedur
 	if err != nil {
 		return in.ProcedureCompletionResult{}, err
 	}
-	attending, err := s.Appointments.InAttention(ctx, p.AppointmentID, p.PatientID)
-	if err != nil {
-		return in.ProcedureCompletionResult{}, unavailable("appointment authority", err)
-	}
-	if !attending {
-		return in.ProcedureCompletionResult{}, careStateConflict()
+	if _, err := attendingEncounter(ctx, s.Appointments, p.AppointmentID, p.PatientID, ""); err != nil {
+		return in.ProcedureCompletionResult{}, err
 	}
 
 	now := s.Clock.Now()

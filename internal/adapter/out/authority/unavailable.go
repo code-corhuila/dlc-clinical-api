@@ -27,23 +27,23 @@ func (Unavailable) AssignedPatients(context.Context, string) ([]string, error) {
 
 func (Unavailable) IsActive(context.Context, string) (bool, error) { return false, out.ErrUnavailable }
 
-var _ out.AppointmentAuthority = Unavailable{}
-
-func (Unavailable) InAttention(context.Context, string, string) (bool, error) {
-	return false, out.ErrUnavailable
-}
-
 var (
-	_ out.PatientGate      = Unavailable{}
-	_ out.BillingAuthority = Unavailable{}
-	_ out.EncounterGate    = Unavailable{}
+	_ out.AppointmentAuthority = Unavailable{}
+	_ out.BillingAuthority     = Unavailable{}
+	_ out.PatientGate          = Unavailable{}
 )
 
-func (Unavailable) EncounterManualCharges(context.Context, string, string, string) ([]string, error) {
-	return nil, out.ErrUnavailable
+func (Unavailable) EncounterStatus(context.Context, string) (out.EncounterStatus, error) {
+	return out.EncounterStatus{}, out.ErrUnavailable
 }
 
-func (Unavailable) Quiesce(context.Context, string, string, string) error { return out.ErrUnavailable }
+func (Unavailable) FreezeManualCharges(context.Context, string, string, string) (out.ManualChargeSettlement, error) {
+	return out.ManualChargeSettlement{}, out.ErrUnavailable
+}
+
+func (Unavailable) ReleaseManualChargeFreeze(context.Context, string, string, string) error {
+	return out.ErrUnavailable
+}
 
 func (Unavailable) AcquireActivityGuard(context.Context, string, string) (out.Guard, error) {
 	return out.Guard{}, out.ErrUnavailable
