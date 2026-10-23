@@ -50,7 +50,7 @@ func run(logger *slog.Logger) error {
 	}
 	defer store.Close(context.Background())
 
-	care, patients, err := owners(cfg)
+	care, patients, sessions, err := owners(cfg)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func run(logger *slog.Logger) error {
 	}
 	routes = append(routes, httpapi.CareCompletionRoutes(careCompletions)...)
 	router := httpapi.NewRouter(httpapi.Options{
-		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now},
+		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: sessions},
 		Logger:   logger,
 		Ready:    store.Ping,
 		Routes:   append(routes, httpapi.TreatmentRoutes(treatments)...),
@@ -137,17 +137,18 @@ func loadPublicKey(cfg config.Config) (*rsa.PublicKey, error) {
 
 // owners wires the private owner contracts that are configured; any owner
 // without a URL keeps failing closed through authority.Unavailable.
-func owners(cfg config.Config) (out.CareAuthority, out.PatientDirectory, error) {
+func owners(cfg config.Config) (out.CareAuthority, out.PatientDirectory, httpapi.SessionValidator, error) {
 	var care out.CareAuthority = authority.Unavailable{}
 	var patients out.PatientDirectory = authority.Unavailable{}
-	if cfg.PatientsURL == "" && cfg.AppointmentsURL == "" {
-		return care, patients, nil
+	var sessions httpapi.SessionValidator
+	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" {
+		return care, patients, sessions, nil
 	}
 	token := cfg.ServiceToken
 	if cfg.ServiceTokenFile != "" {
 		raw, err := os.ReadFile(cfg.ServiceTokenFile)
 		if err != nil {
-			return nil, nil, fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
+			return nil, nil, nil, fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
 		}
 		token = strings.TrimSpace(string(raw))
 	}
@@ -160,5 +161,8 @@ func owners(cfg config.Config) (out.CareAuthority, out.PatientDirectory, error) 
 	if cfg.PatientsURL != "" {
 		patients = authority.Patients{Client: client(cfg.PatientsURL)}
 	}
-	return care, patients, nil
+	if cfg.AuthURL != "" {
+		sessions = authority.Sessions{Client: client(cfg.AuthURL)}
+	}
+	return care, patients, sessions, nil
 }

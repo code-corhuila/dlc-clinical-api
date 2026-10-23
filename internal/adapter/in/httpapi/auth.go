@@ -43,6 +43,14 @@ type Verifier struct {
 	Issuer   string
 	Audience string
 	Now      func() time.Time
+	// Sessions, when set, asks auth whether the session is still active after
+	// the local checks pass; nil keeps local verification only (dev).
+	Sessions SessionValidator
+}
+
+// SessionValidator reports whether auth still considers a token active.
+type SessionValidator interface {
+	IsActive(ctx context.Context, accessToken string) (bool, error)
 }
 
 var errInvalidToken = errors.New("invalid token")
@@ -122,6 +130,17 @@ func withAuthentication(v *Verifier, public map[string]bool, next http.Handler) 
 		if err != nil {
 			WriteError(w, r, unauthorized())
 			return
+		}
+		if v.Sessions != nil {
+			active, err := v.Sessions.IsActive(r.Context(), token)
+			switch {
+			case err != nil:
+				WriteError(w, r, err)
+				return
+			case !active:
+				WriteError(w, r, unauthorized())
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, p)))
 	})
