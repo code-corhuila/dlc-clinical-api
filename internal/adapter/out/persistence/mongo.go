@@ -178,3 +178,6 @@ func (m *Mongo) insertIdempotency(tx context.Context, idem out.IdempotencyRecord
 	}
 	return err
 }
+
+// Ping confirms the primary answers; it backs the readiness probe.
+func (m *Mongo) Ping(ctx context.Context) error { return m.client.Ping(ctx, readpref.Primary()) }
