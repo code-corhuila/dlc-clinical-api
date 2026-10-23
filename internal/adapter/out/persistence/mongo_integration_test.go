@@ -108,3 +108,10 @@ func TestMongoListNewestFirstWithFilterAndWindow(t *testing.T) {
 		t.Fatalf("an empty scope sees nothing, got %d", total)
 	}
 }
+
+func TestMongoPingBacksReadiness(t *testing.T) {
+	m := newTestMongo(t)
+	if err := m.Ping(context.Background()); err != nil {
+		t.Fatalf("a reachable primary must answer: %v", err)
+	}
+}
