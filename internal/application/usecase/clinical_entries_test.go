@@ -67,7 +67,7 @@ func setupEntries(t *testing.T) entryFixture {
 	e := &fakeEntries{entries: map[string]model.Entry{}, idem: map[string]out.IdempotencyRecord{}}
 	ef := entryFixture{fixture: f, entries: e}
 	ef.encounters = &fakeEncounters{closed: map[string]bool{}}
-	ef.svc = &EntryService{Records: f.repo, Entries: e, Closures: ef.encounters, Care: f.care, Patients: f.patients, Clock: f.svc.Clock, IDs: f.svc.IDs}
+	ef.svc = &EntryService{Records: f.repo, Entries: e, Closures: ef.encounters, Care: f.care, Patients: f.patients, Guard: f.svc.Guard, Clock: f.svc.Clock, IDs: f.svc.IDs}
 	r1, err := open(f, admin, "pat-1", "rec-key-1", "h")
 	r3, err3 := open(f, admin, "pat-3", "rec-key-3", "h")
 	if err != nil || err3 != nil {

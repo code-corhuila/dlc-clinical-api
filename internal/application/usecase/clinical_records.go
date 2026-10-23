@@ -28,6 +28,7 @@ type RecordService struct {
 	Repo     out.RecordRepository
 	Care     out.CareAuthority
 	Patients out.PatientDirectory
+	Guard    *GuardedWrites
 	Clock    out.Clock
 	IDs      out.IDGenerator
 }
@@ -62,7 +63,9 @@ func (s *RecordService) Open(ctx context.Context, cmd in.OpenRecordCommand) (in.
 		ActorID: cmd.Actor.ID, Operation: OpOpenRecord, Key: cmd.IdempotencyKey, RequestHash: cmd.RequestHash,
 		ResourceID: rec.ID, ResponseStatus: statusCreated, CreatedAt: now, ExpiresAt: now.Add(idempotencyRetention),
 	}
-	switch err := s.Repo.CreateRecord(ctx, rec, idem); {
+	err = s.Guard.Run(ctx, GuardedWrite{Actor: cmd.Actor, PatientID: cmd.PatientID,
+		Commit: func(tagged context.Context) error { return s.Repo.CreateRecord(tagged, rec, idem) }})
+	switch {
 	case errors.Is(err, out.ErrDuplicateIdempotency):
 		// A concurrent retry stored the key first: answer with its result.
 		res, _, rerr := s.replay(ctx, cmd)

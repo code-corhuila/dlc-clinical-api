@@ -26,8 +26,8 @@ func newEntriesEnv(t *testing.T) *entriesEnv {
 		return stubCare{}, stubPatients{}, &clock{t: testNow}, uuids{}
 	}
 	care, patients, clk, ids := deps()
-	records := &usecase.RecordService{Repo: store, Care: care, Patients: patients, Clock: clk, IDs: ids}
-	entries := &usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids}
+	records := &usecase.RecordService{Repo: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids}
+	entries := &usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids}
 	h := NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Routes: append(RecordRoutes(records), EntryRoutes(entries)...)})
 	rec := post(h, validToken(t), key1, `{"patientId":"`+patientA+`"}`)
