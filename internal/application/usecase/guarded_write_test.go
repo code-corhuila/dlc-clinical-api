@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
@@ -64,8 +65,18 @@ func (f *fakeCoordination) GetIntent(_ context.Context, op string) (out.WriteInt
 	return w, nil
 }
 
-func (f *fakeCoordination) PendingIntents(context.Context, int) ([]out.WriteIntent, error) {
-	return nil, nil
+func (f *fakeCoordination) PendingIntents(_ context.Context, limit int) ([]out.WriteIntent, error) {
+	var pending []out.WriteIntent
+	for _, w := range f.intents {
+		if w.State == out.IntentPending {
+			pending = append(pending, w)
+		}
+	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].OperationID < pending[j].OperationID })
+	if len(pending) > limit {
+		pending = pending[:limit]
+	}
+	return pending, nil
 }
 
 func (f *fakeCoordination) Admit(_ context.Context, _ out.EncounterKey, op string) error {

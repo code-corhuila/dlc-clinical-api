@@ -1,4 +1,4 @@
-# Clinical API, its outbox relay and its inbox consumer. The shared MongoDB instance belongs to dlc-infra-mongo and the
+# Clinical API, its outbox relay, its inbox consumer and its intent reconciler. The shared MongoDB instance belongs to dlc-infra-mongo and the
 # Clinical schema to dlc-clinical-db; this file never defines a database or volume.
 name: dlc-clinical-api
 services:
@@ -23,6 +23,14 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     entrypoint: ["/clinical-inbox-consumer"]
+    env_file: ../.env
+    networks: [platform]
+  # Settles write intents left PENDING by a lost owner answer or a crash (ADR-017).
+  clinical-intent-reconciler:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    entrypoint: ["/clinical-intent-reconciler"]
     env_file: ../.env
     networks: [platform]
 networks:

@@ -9,7 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/correlation"
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
@@ -25,6 +28,24 @@ type Client struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
+}
+
+// NewClient builds an owner client bounded by timeout on every call.
+func NewClient(baseURL, token string, timeout time.Duration) *Client {
+	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), Token: token, HTTP: &http.Client{Timeout: timeout}}
+}
+
+// ServiceToken returns the service credential from its value or its file
+// (a mounted secret); it is never logged.
+func ServiceToken(value, file string) (string, error) {
+	if file == "" {
+		return value, nil
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return "", fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values, dst any) error {
