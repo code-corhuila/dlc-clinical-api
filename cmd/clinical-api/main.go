@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -153,17 +152,11 @@ func owners(cfg config.Config) (ownerSet, error) {
 	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" && cfg.BillingURL == "" {
 		return set, nil
 	}
-	token := cfg.ServiceToken
-	if cfg.ServiceTokenFile != "" {
-		raw, err := os.ReadFile(cfg.ServiceTokenFile)
-		if err != nil {
-			return ownerSet{}, fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
-		}
-		token = strings.TrimSpace(string(raw))
+	token, err := authority.ServiceToken(cfg.ServiceToken, cfg.ServiceTokenFile)
+	if err != nil {
+		return ownerSet{}, err
 	}
-	client := func(base string) *authority.Client {
-		return &authority.Client{BaseURL: strings.TrimRight(base, "/"), Token: token, HTTP: &http.Client{Timeout: cfg.InternalTimeout}}
-	}
+	client := func(base string) *authority.Client { return authority.NewClient(base, token, cfg.InternalTimeout) }
 	if cfg.AppointmentsURL != "" {
 		apts := authority.Appointments{Client: client(cfg.AppointmentsURL)}
 		set.care, set.appointments = apts, apts
