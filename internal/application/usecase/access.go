@@ -104,3 +104,22 @@ func pageWindow(p in.PageRequest) (page, limit int, err error) {
 	}
 	return page, limit, nil
 }
+
+// ensureOpen rejects a write to an encounter whose closure was already
+// declared, even if another assignment authorizes the dentist (APT-012).
+// Writes outside any encounter (empty appointment) are not affected.
+func ensureOpen(ctx context.Context, closures out.EncounterClosures, appointmentIDs ...string) error {
+	for _, apt := range appointmentIDs {
+		if apt == "" {
+			continue
+		}
+		found, err := closures.FindClosuresByAppointment(ctx, apt)
+		if err != nil {
+			return err
+		}
+		if len(found) > 0 {
+			return careStateConflict()
+		}
+	}
+	return nil
+}

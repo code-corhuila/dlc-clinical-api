@@ -54,15 +54,15 @@ func run(logger *slog.Logger) error {
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	entries := &usecase.EntryService{
-		Records: store, Entries: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Records: store, Entries: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	treatments := &usecase.TreatmentService{
-		Records: store, Entries: store, Treatments: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Records: store, Entries: store, Treatments: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	procedures := &usecase.ProcedureService{
-		Procedures: store, Treatments: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Procedures: store, Treatments: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
 		Appointments: authority.Unavailable{}, Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes := append(httpapi.RecordRoutes(records), httpapi.EntryRoutes(entries)...)

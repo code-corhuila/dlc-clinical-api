@@ -17,6 +17,7 @@ const OpCompleteProcedure = "ClinicalCompleteprocedure"
 type ProcedureService struct {
 	Procedures   out.ProcedureRepository
 	Treatments   out.TreatmentRepository
+	Closures     out.EncounterClosures
 	Care         out.CareAuthority
 	Patients     out.PatientDirectory
 	Appointments out.AppointmentAuthority
@@ -39,6 +40,9 @@ func (s *ProcedureService) Complete(ctx context.Context, cmd in.CompleteProcedur
 	}
 	p, err := s.writableProcedure(ctx, cmd.Actor, cmd.ProcedureID)
 	if err != nil {
+		return in.ProcedureCompletionResult{}, err
+	}
+	if err := ensureOpen(ctx, s.Closures, p.AppointmentID); err != nil {
 		return in.ProcedureCompletionResult{}, err
 	}
 	t, err := s.Treatments.GetTreatment(ctx, p.TreatmentID)

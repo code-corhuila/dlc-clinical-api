@@ -34,9 +34,9 @@ func newCareEnv(t *testing.T, gate out.EncounterGate) *careEnv {
 	store := persistence.NewMemory()
 	care, patients, clk, ids, apts := stubCare{}, stubPatients{}, &clock{t: testNow}, uuids{}, stubAppointments{}
 	routes := append(RecordRoutes(&usecase.RecordService{Repo: store, Care: care, Patients: patients, Clock: clk, IDs: ids}),
-		EntryRoutes(&usecase.EntryService{Records: store, Entries: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
-	routes = append(routes, TreatmentRoutes(&usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
-	routes = append(routes, ProcedureRoutes(&usecase.ProcedureService{Procedures: store, Treatments: store, Care: care, Patients: patients, Appointments: apts, Clock: clk, IDs: ids})...)
+		EntryRoutes(&usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
+	routes = append(routes, TreatmentRoutes(&usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
+	routes = append(routes, ProcedureRoutes(&usecase.ProcedureService{Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients, Appointments: apts, Clock: clk, IDs: ids})...)
 	routes = append(routes, CareCompletionRoutes(&usecase.CareCompletionService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
 		Appointments: apts, Billing: stubBilling{}, Gate: gate, Clock: clk, IDs: ids})...)
 	h := NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Routes: routes})
@@ -151,5 +151,20 @@ func TestRetryClosureRoute(t *testing.T) {
 	}
 	if rec, _ := e.send(t, "/api/v1/care-closures/"+patientB+"/retries", e.key(), `{"reason":"r","expectedVersion":1}`); rec.Code != 404 {
 		t.Fatalf("missing closure = %d", rec.Code)
+	}
+}
+
+func TestDeclaredEncounterRejectsLateWrites(t *testing.T) {
+	e := newCareEnv(t, stubGate{})
+	if rec, _ := e.send(t, "/api/v1/clinical-records/"+e.record+"/care-completions", e.key(), e.declaration("1")); rec.Code != 201 {
+		t.Fatalf("declaration = %d", rec.Code)
+	}
+	late, _ := e.send(t, "/api/v1/clinical-records/"+e.record+"/entries", e.key(), `{"kind":"EVOLUTION","text":"tarde","appointmentId":"`+appointmentA+`"}`)
+	if late.Code != 409 || decodeEnvelope(t, late).Error != "CARE_STATE_CONFLICT" {
+		t.Fatalf("late entry = %d %s", late.Code, late.Body.String())
+	}
+	amend, _ := e.send(t, "/api/v1/clinical-entries/"+e.consultation+"/amendments", e.key(), `{"text":"x","reason":"r","expectedVersion":1}`)
+	if amend.Code != 409 {
+		t.Fatalf("an amendment cannot reopen a closed encounter, got %d", amend.Code)
 	}
 }
