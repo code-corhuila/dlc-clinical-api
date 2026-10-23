@@ -9,12 +9,15 @@ import (
 )
 
 // CreateEntry stores the entry, its key and its events together or none.
-func (m *Memory) CreateEntry(_ context.Context, e model.Entry, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
+func (m *Memory) CreateEntry(ctx context.Context, e model.Entry, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	scope := keyScope(idem.ActorID, idem.Operation, idem.Key)
 	if _, ok := m.keys[scope]; ok {
 		return out.ErrDuplicateIdempotency
+	}
+	if err := m.applyWriteTag(ctx); err != nil {
+		return err
 	}
 	m.entries[e.ID] = e
 	m.keys[scope] = idem

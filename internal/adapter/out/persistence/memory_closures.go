@@ -50,7 +50,7 @@ func (m *Memory) CompletedProcedureIDs(_ context.Context, recordID, appointmentI
 
 // DeclareCareCompletion stores closure, record version, key and events
 // together; one closure per encounter and only from the expected version.
-func (m *Memory) DeclareCareCompletion(_ context.Context, c model.CareClosure, recordFromVersion int, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
+func (m *Memory) DeclareCareCompletion(ctx context.Context, c model.CareClosure, recordFromVersion int, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	scope := keyScope(idem.ActorID, idem.Operation, idem.Key)
@@ -65,6 +65,9 @@ func (m *Memory) DeclareCareCompletion(_ context.Context, c model.CareClosure, r
 	rec, ok := m.records[c.RecordID]
 	if !ok || rec.Version != recordFromVersion {
 		return out.ErrVersionConflict
+	}
+	if err := m.applyWriteTag(ctx); err != nil {
+		return err
 	}
 	rec.Version, rec.UpdatedAt = c.ClinicalVersion, c.CompletedAt
 	m.records[rec.ID], m.closure[c.ID], m.keys[scope] = rec, cloneClosure(c), idem

@@ -19,7 +19,7 @@ func (m *Memory) GetProcedure(_ context.Context, id string) (model.Procedure, er
 
 // CompleteProcedure applies the completion, its extras, key and events
 // together, only while the stored version is fromVersion.
-func (m *Memory) CompleteProcedure(_ context.Context, p model.Procedure, fromVersion int, extras []out.RecordedExtra, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
+func (m *Memory) CompleteProcedure(ctx context.Context, p model.Procedure, fromVersion int, extras []out.RecordedExtra, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	scope := keyScope(idem.ActorID, idem.Operation, idem.Key)
@@ -33,6 +33,9 @@ func (m *Memory) CompleteProcedure(_ context.Context, p model.Procedure, fromVer
 		if m.sources[e.SourceRecordID] {
 			return out.ErrDuplicateSource
 		}
+	}
+	if err := m.applyWriteTag(ctx); err != nil {
+		return err
 	}
 	for _, e := range extras {
 		m.sources[e.SourceRecordID] = true

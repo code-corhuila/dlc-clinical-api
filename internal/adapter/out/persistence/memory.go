@@ -25,12 +25,16 @@ type Memory struct {
 	sources map[string]bool
 	closure map[string]model.CareClosure
 	inbox   map[string]out.InboxRecord
+
+	intents    map[string]out.WriteIntent
+	admissions map[out.EncounterKey]*admission
 }
 
 // NewMemory returns an empty repository.
 func NewMemory() *Memory {
 	return &Memory{records: map[string]model.ClinicalRecord{}, keys: map[string]out.IdempotencyRecord{}, entries: map[string]model.Entry{}, treats: map[string]model.Treatment{},
-		procs: map[string]model.Procedure{}, sources: map[string]bool{}, closure: map[string]model.CareClosure{}, inbox: map[string]out.InboxRecord{}}
+		procs: map[string]model.Procedure{}, sources: map[string]bool{}, closure: map[string]model.CareClosure{}, inbox: map[string]out.InboxRecord{},
+		intents: map[string]out.WriteIntent{}, admissions: map[out.EncounterKey]*admission{}}
 }
 
 var (
@@ -51,7 +55,7 @@ func (m *Memory) FindIdempotency(_ context.Context, actor, operation, key string
 }
 
 // CreateRecord stores the record and its key together or neither.
-func (m *Memory) CreateRecord(_ context.Context, rec model.ClinicalRecord, idem out.IdempotencyRecord) error {
+func (m *Memory) CreateRecord(ctx context.Context, rec model.ClinicalRecord, idem out.IdempotencyRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	scope := keyScope(idem.ActorID, idem.Operation, idem.Key)
@@ -62,6 +66,9 @@ func (m *Memory) CreateRecord(_ context.Context, rec model.ClinicalRecord, idem 
 		if existing.PatientID == rec.PatientID {
 			return out.ErrRecordExists
 		}
+	}
+	if err := m.applyWriteTag(ctx); err != nil {
+		return err
 	}
 	m.records[rec.ID] = rec
 	m.keys[scope] = idem
