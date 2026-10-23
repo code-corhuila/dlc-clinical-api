@@ -49,10 +49,12 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 
 func TestLoadReadsOverrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"HTTP_ADDR":        ":9090",
-		"APP_ENV":          "qa",
-		"SHUTDOWN_TIMEOUT": "30s",
-		"WRITE_TIMEOUT":    "20s",
+		"HTTP_ADDR":         ":9090",
+		"APP_ENV":           "qa",
+		"AUTH_INTERNAL_URL": "http://auth",
+		"SERVICE_TOKEN":     "svc",
+		"SHUTDOWN_TIMEOUT":  "30s",
+		"WRITE_TIMEOUT":     "20s",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -144,5 +146,20 @@ func TestLoadInternalOwners(t *testing.T) {
 		if _, err := Load(env(bad)); err == nil {
 			t.Fatalf("%s must be rejected", name)
 		}
+	}
+}
+
+func TestLoadAuthSessionValidation(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"AUTH_INTERNAL_URL": "http://auth:8080", "SERVICE_TOKEN": "svc"}))
+	if err != nil || cfg.AuthURL != "http://auth:8080" {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
+	for _, e := range []string{"qa", "main"} {
+		if _, err := Load(env(map[string]string{"APP_ENV": e})); err == nil {
+			t.Fatalf("%s must not run without revocation checks", e)
+		}
+	}
+	if _, err := Load(env(map[string]string{"AUTH_INTERNAL_URL": "http://auth"})); err == nil {
+		t.Fatal("auth URL needs a service token")
 	}
 }

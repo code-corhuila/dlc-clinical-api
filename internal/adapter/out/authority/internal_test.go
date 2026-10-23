@@ -3,6 +3,7 @@ package authority
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -108,5 +109,35 @@ func TestOperationsWithoutAnOwnerContractFailClosed(t *testing.T) {
 	}
 	if len(*seen) != 0 {
 		t.Fatal("no undocumented endpoint is invented")
+	}
+}
+
+func TestSessionValidationPostsTheAccessToken(t *testing.T) {
+	var body string
+	c, seen := owner(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		reply(200, `{"active":true}`)(w, r)
+	})
+	ok, err := Sessions{Client: c}.IsActive(ctx, "user.jwt.sig")
+	r := (*seen)[0]
+	if err != nil || !ok || r.Method != http.MethodPost || r.URL.Path != "/internal/v1/sessions/validations" || body != `{"accessToken":"user.jwt.sig"}` || r.Header.Get("Authorization") != "Bearer svc-token" {
+		t.Fatalf("got %v %v %s %s %q", ok, err, r.Method, r.URL, body)
+	}
+	for name, c := range map[string]struct {
+		h      func(http.ResponseWriter, *http.Request)
+		active bool
+		down   bool
+	}{
+		"revoked":     {reply(200, `{"active":false}`), false, false},
+		"no field":    {reply(200, `{}`), false, true},
+		"owner error": {reply(503, `{"error":"SERVICE_UNAVAILABLE","message":"x"}`), false, true},
+		"not found":   {reply(404, `{"error":"NOT_FOUND","message":"x"}`), false, true},
+	} {
+		client, _ := owner(t, c.h)
+		active, err := Sessions{Client: client}.IsActive(ctx, "t")
+		if active != c.active || c.down != errors.Is(err, out.ErrUnavailable) {
+			t.Fatalf("%s: got %v %v", name, active, err)
+		}
 	}
 }
