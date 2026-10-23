@@ -8,7 +8,7 @@ services:
       dockerfile: deploy/Dockerfile
     env_file: ../.env
     expose: ["8080"]
-    networks: [platform]
+    networks: [platform, clinical-data]
   # Publishes committed outbox events (Norma 5.3.11): same image, separate process.
   clinical-outbox-relay:
     build:
@@ -16,7 +16,7 @@ services:
       dockerfile: deploy/Dockerfile
     entrypoint: ["/clinical-outbox-relay"]
     env_file: ../.env
-    networks: [platform]
+    networks: [platform, clinical-data]
   # Applies AppointmentCompleted and EncounterChargesCompleted to the encounter closure.
   clinical-inbox-consumer:
     build:
@@ -24,7 +24,7 @@ services:
       dockerfile: deploy/Dockerfile
     entrypoint: ["/clinical-inbox-consumer"]
     env_file: ../.env
-    networks: [platform]
+    networks: [platform, clinical-data]
   # Settles write intents left PENDING by a lost owner answer or a crash (ADR-017).
   clinical-intent-reconciler:
     build:
@@ -32,8 +32,12 @@ services:
       dockerfile: deploy/Dockerfile
     entrypoint: ["/clinical-intent-reconciler"]
     env_file: ../.env
-    networks: [platform]
+    networks: [platform, clinical-data]
 networks:
   platform:
     name: ${PLATFORM_NETWORK_NAME:-platform}
+    external: true
+  # MongoDB (dlc-infra-mongo) is reachable only on this network; other contexts never join it.
+  clinical-data:
+    name: ${CLINICAL_DATA_NETWORK_NAME:-clinical-data}
     external: true
