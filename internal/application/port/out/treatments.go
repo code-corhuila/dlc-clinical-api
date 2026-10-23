@@ -19,6 +19,6 @@ type TreatmentRepository interface {
 	// and stores the key in the same transaction; otherwise ErrVersionConflict.
 	UpdateTreatment(ctx context.Context, t model.Treatment, fromVersion int, idem IdempotencyRecord) error
 	GetTreatment(ctx context.Context, id string) (model.Treatment, error)
-	// ListTreatments returns newest first and the total matching the filter.
+	// ListTreatments returns oldest first and the total matching the filter.
 	ListTreatments(ctx context.Context, f RecordFilter) ([]model.Treatment, int, error)
 }

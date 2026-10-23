@@ -61,18 +61,18 @@ func TestMemoryRejectsDuplicatesAtomically(t *testing.T) {
 	}
 }
 
-func TestMemoryListNewestFirstWithFilterAndWindow(t *testing.T) {
+func TestMemoryListOldestFirstWithFilterAndWindow(t *testing.T) {
 	m := NewMemory()
 	base := time.Now()
 	for i, p := range []string{"p1", "p2", "p3"} {
 		_ = m.CreateRecord(ctx, rec("r"+p, p, base.Add(time.Duration(i)*time.Minute)), key("k"+p, "r"+p))
 	}
 	items, total, _ := m.ListRecords(ctx, out.RecordFilter{Limit: 2})
-	if total != 3 || len(items) != 2 || items[0].PatientID != "p3" || items[1].PatientID != "p2" {
+	if total != 3 || len(items) != 2 || items[0].PatientID != "p1" || items[1].PatientID != "p2" {
 		t.Fatalf("got %d %+v", total, items)
 	}
 	items, total, _ = m.ListRecords(ctx, out.RecordFilter{PatientIDs: []string{"p1", "p2"}, Offset: 1, Limit: 5})
-	if total != 2 || len(items) != 1 || items[0].PatientID != "p1" {
+	if total != 2 || len(items) != 1 || items[0].PatientID != "p2" {
 		t.Fatalf("got %d %+v", total, items)
 	}
 	items, total, _ = m.ListRecords(ctx, out.RecordFilter{PatientIDs: []string{}, Limit: 5})
