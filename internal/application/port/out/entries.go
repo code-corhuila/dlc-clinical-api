@@ -28,6 +28,6 @@ type EntryRepository interface {
 	FindIdempotency(ctx context.Context, actorID, operation, key string) (IdempotencyRecord, bool, error)
 	CreateEntry(ctx context.Context, e model.Entry, idem IdempotencyRecord, events []OutboxEvent) error
 	GetEntry(ctx context.Context, id string) (model.Entry, error)
-	// ListEntries returns a record's entries newest first and their total.
+	// ListEntries returns a record's entries oldest first and their total.
 	ListEntries(ctx context.Context, recordID string, offset, limit int) ([]model.Entry, int, error)
 }

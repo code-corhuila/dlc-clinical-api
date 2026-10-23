@@ -169,8 +169,8 @@ func TestListAndReadRecords(t *testing.T) {
 	if list.Code != 200 || len(page.Data) != 1 || page.Meta.Page != 1 || page.Meta.Limit != 1 || page.Meta.Total != 2 || page.Meta.TotalPages != 2 {
 		t.Fatalf("list = %d %s", list.Code, list.Body.String())
 	}
-	if page.Data[0]["patientId"] != patientB {
-		t.Fatal("newest first")
+	if page.Data[0]["patientId"] != patientA {
+		t.Fatal("oldest first (createdAt ascending)")
 	}
 	byPatient := do(h, http.MethodGet, "/api/v1/clinical-records?patientId="+patientA, validToken(t), nil, nil)
 	_ = json.Unmarshal(byPatient.Body.Bytes(), &page)

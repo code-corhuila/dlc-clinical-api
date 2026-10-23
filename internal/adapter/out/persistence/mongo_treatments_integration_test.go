@@ -75,7 +75,7 @@ func TestMongoTreatmentCreateIsAtomic(t *testing.T) {
 	}
 }
 
-func TestMongoListTreatmentsScopedNewestFirst(t *testing.T) {
+func TestMongoListTreatmentsScopedOldestFirst(t *testing.T) {
 	m := newTestMongo(t)
 	cleanTreatments(t, m)
 	base := time.Now().UTC().Truncate(time.Second)
@@ -86,7 +86,7 @@ func TestMongoListTreatmentsScopedNewestFirst(t *testing.T) {
 		}
 	}
 	items, total, err := m.ListTreatments(ctx, out.RecordFilter{PatientIDs: []string{"p1"}, Limit: 5})
-	if err != nil || total != 2 || len(items) != 2 || items[0].ID != "tc" || items[1].ID != "ta" || len(items[0].Procedures) != 1 {
+	if err != nil || total != 2 || len(items) != 2 || items[0].ID != "ta" || items[1].ID != "tc" || len(items[0].Procedures) != 1 {
 		t.Fatalf("got %d %+v %v", total, items, err)
 	}
 }

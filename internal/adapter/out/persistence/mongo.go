@@ -137,7 +137,7 @@ func (m *Mongo) GetRecord(ctx context.Context, id string) (model.ClinicalRecord,
 	return d.model(), nil
 }
 
-// ListRecords counts and pages within the same filter, newest first, ties by id.
+// ListRecords counts and pages within the same filter, oldest first, ties by id.
 func (m *Mongo) ListRecords(ctx context.Context, f out.RecordFilter) ([]model.ClinicalRecord, int, error) {
 	filter := bson.D{}
 	if f.PatientIDs != nil {
@@ -149,7 +149,7 @@ func (m *Mongo) ListRecords(ctx context.Context, f out.RecordFilter) ([]model.Cl
 		return nil, 0, err
 	}
 	cur, err := coll.Find(ctx, filter, options.Find().
-		SetSort(bson.D{{Key: "createdAt", Value: -1}, {Key: "_id", Value: -1}}).
+		SetSort(bson.D{{Key: "createdAt", Value: 1}, {Key: "_id", Value: 1}}).
 		SetSkip(int64(f.Offset)).SetLimit(int64(f.Limit)))
 	if err != nil {
 		return nil, 0, err

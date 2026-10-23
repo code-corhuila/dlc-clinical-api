@@ -32,7 +32,7 @@ func (m *Memory) GetEntry(_ context.Context, id string) (model.Entry, error) {
 	return e, nil
 }
 
-// ListEntries returns a record's entries newest first (ties by id).
+// ListEntries returns a record's entries oldest first (ties by id).
 func (m *Memory) ListEntries(_ context.Context, recordID string, offset, limit int) ([]model.Entry, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -44,9 +44,9 @@ func (m *Memory) ListEntries(_ context.Context, recordID string, offset, limit i
 	}
 	sort.Slice(matched, func(i, j int) bool {
 		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
-			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+			return matched[i].CreatedAt.Before(matched[j].CreatedAt)
 		}
-		return matched[i].ID > matched[j].ID
+		return matched[i].ID < matched[j].ID
 	})
 	if offset >= len(matched) {
 		return []model.Entry{}, len(matched), nil

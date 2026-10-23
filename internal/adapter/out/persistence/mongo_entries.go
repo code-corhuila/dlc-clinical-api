@@ -161,7 +161,7 @@ func (m *Mongo) ListEntries(ctx context.Context, recordID string, offset, limit 
 	}
 	pipeline := mongo.Pipeline{
 		match, union("consultations", model.KindConsultation), union("diagnoses", model.KindDiagnosis),
-		{{Key: "$sort", Value: bson.D{{Key: "createdAt", Value: -1}, {Key: "_id", Value: -1}}}},
+		{{Key: "$sort", Value: bson.D{{Key: "createdAt", Value: 1}, {Key: "_id", Value: 1}}}},
 		{{Key: "$facet", Value: bson.D{
 			{Key: "items", Value: bson.A{bson.D{{Key: "$skip", Value: offset}}, bson.D{{Key: "$limit", Value: limit}}}},
 			{Key: "total", Value: bson.A{bson.D{{Key: "$count", Value: "n"}}}},

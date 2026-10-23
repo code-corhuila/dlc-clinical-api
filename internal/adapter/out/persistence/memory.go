@@ -78,7 +78,7 @@ func (m *Memory) GetRecord(_ context.Context, id string) (model.ClinicalRecord, 
 	return rec, nil
 }
 
-// ListRecords returns newest first (ties broken by id) within the window.
+// ListRecords returns oldest first (ties broken by id) within the window.
 func (m *Memory) ListRecords(_ context.Context, f out.RecordFilter) ([]model.ClinicalRecord, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -90,9 +90,9 @@ func (m *Memory) ListRecords(_ context.Context, f out.RecordFilter) ([]model.Cli
 	}
 	sort.Slice(matched, func(i, j int) bool {
 		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
-			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+			return matched[i].CreatedAt.Before(matched[j].CreatedAt)
 		}
-		return matched[i].ID > matched[j].ID
+		return matched[i].ID < matched[j].ID
 	})
 	total := len(matched)
 	if f.Offset >= total {
