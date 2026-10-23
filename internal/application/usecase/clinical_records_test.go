@@ -124,7 +124,13 @@ type fixture struct {
 	repo     *fakeRepo
 	care     *fakeCare
 	patients *fakePatients
+	coord    *fakeCoordination
 	svc      *RecordService
+}
+
+// guard runs the fixture writes under an always-granted patient gate.
+func (f fixture) guard() *GuardedWrites {
+	return &GuardedWrites{Intents: f.coord, Admissions: f.coord, Gate: f.coord, Care: f.care, Patients: f.patients, Clock: &fixedClock{t: t0}, IDs: &seqIDs{}}
 }
 
 func setup() fixture {
@@ -133,7 +139,9 @@ func setup() fixture {
 		care:     &fakeCare{assigned: map[string][]string{"dentist-1": {"pat-1", "pat-2"}}},
 		patients: &fakePatients{inactive: map[string]bool{}},
 	}
+	f.coord = newCoordination()
 	f.svc = &RecordService{Repo: f.repo, Care: f.care, Patients: f.patients, Clock: &fixedClock{t: t0}, IDs: &seqIDs{}}
+	f.svc.Guard = f.guard()
 	return f
 }
 
