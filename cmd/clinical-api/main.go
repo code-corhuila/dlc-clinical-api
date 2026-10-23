@@ -77,6 +77,7 @@ func run(logger *slog.Logger) error {
 	router := httpapi.NewRouter(httpapi.Options{
 		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now},
 		Logger:   logger,
+		Ready:    store.Ping,
 		Routes:   append(routes, httpapi.TreatmentRoutes(treatments)...),
 	})
 

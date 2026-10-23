@@ -1,9 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -32,5 +37,30 @@ func TestHealthRejectsOtherMethods(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+func readinessRouter(check func(context.Context) error) http.Handler {
+	return NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Ready: check})
+}
+
+func TestReadinessReportsUpWithoutToken(t *testing.T) {
+	rec := do(readinessRouter(func(context.Context) error { return nil }), http.MethodGet, "/health/ready", "", nil, nil)
+	if rec.Code != http.StatusOK || rec.Body.String() != "{\"status\":\"UP\"}\n" {
+		t.Fatalf("got %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadinessFailsWithoutLeakingTheCause(t *testing.T) {
+	rec := do(readinessRouter(func(context.Context) error { return errors.New("server selection timeout db-01:27017") }), http.MethodGet, "/health/ready", "", nil, nil)
+	if rec.Code != http.StatusServiceUnavailable || decodeEnvelope(t, rec).Error != "SERVICE_UNAVAILABLE" || strings.Contains(rec.Body.String(), "db-01") {
+		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReadinessIsBoundedInTime(t *testing.T) {
+	rec := do(readinessRouter(func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }), http.MethodGet, "/health/ready", "", nil, nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("a hanging dependency must not hang the probe, got %d", rec.Code)
 	}
 }
