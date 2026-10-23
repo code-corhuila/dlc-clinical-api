@@ -108,7 +108,7 @@ func (m *Mongo) CreateRecord(ctx context.Context, rec model.ClinicalRecord, idem
 	}
 	defer session.EndSession(ctx)
 	_, err = session.WithTransaction(ctx, func(tx context.Context) (any, error) {
-		if err := m.insertIdempotency(tx, idem); err != nil {
+		if err := m.recordWrite(tx, idem); err != nil {
 			return nil, err
 		}
 		if _, err := m.db.Collection("clinical_records").InsertOne(tx, recordDoc{
