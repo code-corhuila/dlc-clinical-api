@@ -1,10 +1,12 @@
 package authority
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -25,13 +27,27 @@ type Client struct {
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values, dst any) error {
-	u := c.BaseURL + "/internal/v1" + path
 	if len(query) > 0 {
-		u += "?" + query.Encode()
+		path += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	return c.do(ctx, http.MethodGet, path, nil, dst)
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body any, dst any) error {
+	var payload io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("%v: %w", err, out.ErrUnavailable)
+		}
+		payload = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+"/internal/v1"+path, payload)
 	if err != nil {
 		return fmt.Errorf("%v: %w", err, out.ErrUnavailable)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/json")
@@ -114,4 +130,26 @@ func (a Appointments) IsAssigned(ctx context.Context, patientID, dentistID strin
 // validates one pair), so it fails closed instead of inventing an endpoint.
 func (a Appointments) AssignedPatients(context.Context, string) ([]string, error) {
 	return nil, fmt.Errorf("no owner contract lists a dentist's assigned patients: %w", out.ErrUnavailable)
+}
+
+// Sessions adapts POST /internal/v1/sessions/validations (auth-service, scope
+// identity:validate): auth decides revocation and account state. The token is
+// sent in the body only and never logged.
+type Sessions struct{ Client *Client }
+
+func (s Sessions) IsActive(ctx context.Context, accessToken string) (bool, error) {
+	var v struct {
+		Active *bool `json:"active"`
+	}
+	err := s.Client.do(ctx, http.MethodPost, "/sessions/validations", map[string]string{"accessToken": accessToken}, &v)
+	if errors.Is(err, errOwnerNotFound) {
+		return false, fmt.Errorf("session validation not found: %w", out.ErrUnavailable)
+	}
+	if err != nil {
+		return false, err
+	}
+	if v.Active == nil {
+		return false, fmt.Errorf("session validation without active: %w", out.ErrUnavailable)
+	}
+	return *v.Active, nil
 }
