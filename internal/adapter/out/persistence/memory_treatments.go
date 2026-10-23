@@ -16,12 +16,15 @@ func cloneTreatment(t model.Treatment) model.Treatment {
 }
 
 // CreateTreatment stores treatment, key and events together or none.
-func (m *Memory) CreateTreatment(_ context.Context, t model.Treatment, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
+func (m *Memory) CreateTreatment(ctx context.Context, t model.Treatment, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	scope := keyScope(idem.ActorID, idem.Operation, idem.Key)
 	if _, ok := m.keys[scope]; ok {
 		return out.ErrDuplicateIdempotency
+	}
+	if err := m.applyWriteTag(ctx); err != nil {
+		return err
 	}
 	m.treats[t.ID], m.keys[scope] = cloneTreatment(t), idem
 	for _, p := range t.Procedures {
