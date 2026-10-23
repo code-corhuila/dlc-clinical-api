@@ -147,3 +147,26 @@ func (m *Mongo) DeclareCareCompletion(ctx context.Context, c model.CareClosure, 
 		return nil
 	})
 }
+
+// RetryClosure replaces the closure only from fromVersion and puts the
+// encounter's original ClinicalCareCompleted back to PENDING with its eventId,
+// in one majority transaction; no event is ever added by a retry.
+func (m *Mongo) RetryClosure(ctx context.Context, c model.CareClosure, fromVersion int, idem out.IdempotencyRecord) error {
+	return m.transact(ctx, func(tx context.Context) error {
+		if err := m.insertIdempotency(tx, idem); err != nil {
+			return err
+		}
+		res, err := m.db.Collection("care_closures").ReplaceOne(tx, bson.D{{Key: "_id", Value: c.ID}, {Key: "version", Value: fromVersion}}, toClosureDoc(c))
+		if err != nil {
+			return err
+		}
+		if res.MatchedCount == 0 {
+			return out.ErrVersionConflict
+		}
+		_, err = m.db.Collection("outbox_events").UpdateMany(tx,
+			bson.D{{Key: "eventType", Value: "ClinicalCareCompleted"}, {Key: "aggregateId", Value: c.RecordID}, {Key: "payload.consultationId", Value: c.ConsultationID}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "status", Value: "PENDING"}, {Key: "attempts", Value: 0}}},
+				{Key: "$unset", Value: bson.D{{Key: "nextAttemptAt", Value: ""}, {Key: "failureReason", Value: ""}, {Key: "publishedAt", Value: ""}}}})
+		return err
+	})
+}

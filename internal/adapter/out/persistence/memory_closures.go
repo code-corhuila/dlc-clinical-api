@@ -71,3 +71,18 @@ func (m *Memory) DeclareCareCompletion(_ context.Context, c model.CareClosure, r
 	m.outbox = append(m.outbox, events...)
 	return nil
 }
+
+// RetryClosure stores the resumed closure only from fromVersion.
+func (m *Memory) RetryClosure(_ context.Context, c model.CareClosure, fromVersion int, idem out.IdempotencyRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	scope := keyScope(idem.ActorID, idem.Operation, idem.Key)
+	if _, ok := m.keys[scope]; ok {
+		return out.ErrDuplicateIdempotency
+	}
+	if stored, ok := m.closure[c.ID]; !ok || stored.Version != fromVersion {
+		return out.ErrVersionConflict
+	}
+	m.closure[c.ID], m.keys[scope] = cloneClosure(c), idem
+	return nil
+}
