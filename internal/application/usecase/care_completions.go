@@ -26,7 +26,6 @@ type CareCompletionService struct {
 	Patients     out.PatientDirectory
 	Appointments out.AppointmentAuthority
 	Billing      out.BillingAuthority
-	Gate         out.EncounterGate
 	Clock        out.Clock
 	IDs          out.IDGenerator
 }
@@ -63,23 +62,55 @@ func (s *CareCompletionService) Declare(ctx context.Context, cmd in.DeclareCareC
 	} else if declared {
 		return in.CareClosureResult{}, careStateConflict()
 	}
-	attending, err := s.Appointments.InAttention(ctx, cmd.AppointmentID, rec.PatientID)
-	if err != nil {
-		return in.CareClosureResult{}, unavailable("appointment authority", err)
+	if _, err := attendingEncounter(ctx, s.Appointments, cmd.AppointmentID, rec.PatientID, cmd.Actor.ID); err != nil {
+		return in.CareClosureResult{}, err
 	}
-	if !attending {
-		return in.CareClosureResult{}, careStateConflict()
-	}
-	if err := s.Gate.Quiesce(ctx, rec.ID, cmd.ConsultationID, cmd.AppointmentID); err != nil {
-		return in.CareClosureResult{}, unavailable("encounter write gate", err)
-	}
-	procs, err := s.Closures.CompletedProcedureIDs(ctx, rec.ID, cmd.AppointmentID)
+	operationID := s.IDs.NewID()
+	charges, err := s.freezeCharges(ctx, rec.ID, cmd.ConsultationID, operationID)
 	if err != nil {
 		return in.CareClosureResult{}, err
 	}
-	charges, err := s.Billing.EncounterManualCharges(ctx, rec.ID, cmd.ConsultationID, cmd.AppointmentID)
+	closure, err := s.commitDeclaration(ctx, cmd, rec, charges)
 	if err != nil {
-		return in.CareClosureResult{}, unavailable("billing authority", err)
+		s.releaseCharges(ctx, rec.ID, cmd.ConsultationID, operationID)
+	}
+	if errors.Is(err, out.ErrDuplicateIdempotency) {
+		res, _, rerr := s.replay(ctx, cmd)
+		return res, rerr
+	}
+	if err != nil {
+		return in.CareClosureResult{}, err
+	}
+	return in.CareClosureResult{Closure: closure}, nil
+}
+
+// freezeCharges freezes the encounter's manual charges in Billing (ADR-017
+// §6.3). Unsettled writes reject the declaration (409) and release the freeze.
+func (s *CareCompletionService) freezeCharges(ctx context.Context, recordID, consultationID, operationID string) ([]string, error) {
+	settlement, err := s.Billing.FreezeManualCharges(ctx, recordID, consultationID, operationID)
+	if err != nil {
+		s.releaseCharges(ctx, recordID, consultationID, operationID)
+		return nil, unavailable("billing authority", err)
+	}
+	if !settlement.Settled || settlement.PendingWrites > 0 {
+		s.releaseCharges(ctx, recordID, consultationID, operationID)
+		return nil, careStateConflict()
+	}
+	return settlement.ChargeIDs, nil
+}
+
+// releaseCharges lets care continue after a rejected declaration. A failed
+// release is left to the intent reconciliation; it never blocks the answer.
+func (s *CareCompletionService) releaseCharges(ctx context.Context, recordID, consultationID, operationID string) {
+	_ = s.Billing.ReleaseManualChargeFreeze(ctx, recordID, consultationID, operationID)
+}
+
+// commitDeclaration commits the closure with the frozen source set and its
+// ClinicalCareCompleted event in one transaction.
+func (s *CareCompletionService) commitDeclaration(ctx context.Context, cmd in.DeclareCareCompletionCommand, rec model.ClinicalRecord, charges []string) (model.CareClosure, error) {
+	procs, err := s.Closures.CompletedProcedureIDs(ctx, rec.ID, cmd.AppointmentID)
+	if err != nil {
+		return model.CareClosure{}, err
 	}
 
 	now := s.Clock.Now()
@@ -89,7 +120,7 @@ func (s *CareCompletionService) Declare(ctx context.Context, cmd in.DeclareCareC
 		ClinicalVersion: rec.Version + 1, CorrelationID: cmd.CorrelationID, At: now,
 	})
 	if err != nil {
-		return in.CareClosureResult{}, err
+		return model.CareClosure{}, err
 	}
 	event := out.OutboxEvent{
 		EventID: s.IDs.NewID(), EventType: "ClinicalCareCompleted", EventVersion: 1, AggregateID: rec.ID, AggregateType: "ClinicalRecord",
@@ -102,16 +133,13 @@ func (s *CareCompletionService) Declare(ctx context.Context, cmd in.DeclareCareC
 		ResourceID: closure.ID, ResponseStatus: statusCreated, CreatedAt: now, ExpiresAt: now.Add(idempotencyRetention)}
 	switch err := s.Closures.DeclareCareCompletion(ctx, closure, rec.Version, idem, []out.OutboxEvent{event}); {
 	case errors.Is(err, out.ErrVersionConflict):
-		return in.CareClosureResult{}, &model.Error{Kind: model.KindStaleVersion, Code: "STALE_VERSION", Message: "the resource has changed; reload it before submitting a new operation"}
+		return model.CareClosure{}, &model.Error{Kind: model.KindStaleVersion, Code: "STALE_VERSION", Message: "the resource has changed; reload it before submitting a new operation"}
 	case errors.Is(err, out.ErrClosureExists):
-		return in.CareClosureResult{}, careStateConflict()
-	case errors.Is(err, out.ErrDuplicateIdempotency):
-		res, _, rerr := s.replay(ctx, cmd)
-		return res, rerr
+		return model.CareClosure{}, careStateConflict()
 	case err != nil:
-		return in.CareClosureResult{}, err
+		return model.CareClosure{}, err
 	}
-	return in.CareClosureResult{Closure: closure}, nil
+	return closure, nil
 }
 
 // GetClosure returns an encounter closure; out of scope looks missing.

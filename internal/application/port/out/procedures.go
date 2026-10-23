@@ -28,9 +28,3 @@ type ProcedureRepository interface {
 	// fromVersion, and writes its extras, key and events in the same transaction.
 	CompleteProcedure(ctx context.Context, p model.Procedure, fromVersion int, extras []RecordedExtra, idem IdempotencyRecord, events []OutboxEvent) error
 }
-
-// AppointmentAuthority answers, from Appointments, whether the appointment of
-// a patient is currently EN_ATENCION. Unavailable authority fails closed.
-type AppointmentAuthority interface {
-	InAttention(ctx context.Context, appointmentID, patientID string) (bool, error)
-}
