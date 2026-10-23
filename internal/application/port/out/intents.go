@@ -33,7 +33,8 @@ type EncounterKey struct {
 
 // WriteIntent is persisted before any guard or freeze call, so a lost owner
 // response or a crash can be reconciled from Clinical's own data. Committed
-// is set in the same transaction as the write it announces.
+// is set in the same transaction as the write it announces; Fenced excludes
+// that write for good once recovery decided it never committed.
 type WriteIntent struct {
 	OperationID string
 	Kind        string
@@ -41,6 +42,7 @@ type WriteIntent struct {
 	Encounter   EncounterKey
 	GuardID     string
 	Committed   bool
+	Fenced      bool
 	State       string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -54,6 +56,10 @@ type IntentStore interface {
 	// it again with the same state is a no-op.
 	FinishIntent(ctx context.Context, operationID, state string) error
 	GetIntent(ctx context.Context, operationID string) (WriteIntent, error)
+	// FenceIntent atomically excludes the write of an uncommitted intent, so it
+	// can be aborted safely; it answers committed=true when the write already
+	// committed. Fencing again is a no-op.
+	FenceIntent(ctx context.Context, operationID string) (committed bool, err error)
 	// PendingIntents returns up to limit PENDING intents, oldest first.
 	PendingIntents(ctx context.Context, limit int) ([]WriteIntent, error)
 }
@@ -75,7 +81,7 @@ type AdmissionStore interface {
 // WriteTag binds a repository write to its intent: inside the write's own
 // transaction the adapter marks the intent committed (and COMPLETED when
 // Complete is set) and the encounter admission COMMITTED, or fails the whole
-// write with ErrIntentSettled. It travels in the context like a transaction
+// write with ErrIntentSettled (also once the intent is fenced). It travels in the context like a transaction
 // boundary, so every write port keeps its signature.
 type WriteTag struct {
 	OperationID string
