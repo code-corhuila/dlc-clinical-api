@@ -131,5 +131,27 @@ func (s *Subscriber) process(ctx context.Context, d amqp.Delivery, handle func(c
 	case <-time.After(s.opts.RedeliveryDelay):
 	case <-ctx.Done():
 	}
+	// The broker limit alone is not enough: RabbitMQ 4 no longer counts requeues
+	// towards x-delivery-limit. Reaching the limit rejects to the DLQ explicitly.
+	if priorAttempts(d.Headers)+1 >= int64(s.opts.DeliveryLimit) {
+		_ = d.Reject(false)
+		return
+	}
 	_ = d.Nack(false, true)
+}
+
+// priorAttempts is how many times the broker already delivered the message:
+// x-delivery-count (RabbitMQ 3, failed deliveries) or x-acquired-count
+// (RabbitMQ 4, every requeue), whichever is larger.
+func priorAttempts(h amqp.Table) int64 {
+	var n int64
+	for _, key := range []string{"x-delivery-count", "x-acquired-count"} {
+		switch v := h[key].(type) {
+		case int64:
+			n = max(n, v)
+		case int32:
+			n = max(n, int64(v))
+		}
+	}
+	return n
 }
