@@ -162,4 +162,10 @@ func TestLoadAuthSessionValidation(t *testing.T) {
 	if _, err := Load(env(map[string]string{"AUTH_INTERNAL_URL": "http://auth"})); err == nil {
 		t.Fatal("auth URL needs a service token")
 	}
+	if _, err := Load(env(map[string]string{"BILLING_INTERNAL_URL": "http://billing"})); err == nil {
+		t.Fatal("billing URL needs a service token")
+	}
+	if cfg, err := Load(env(map[string]string{"BILLING_INTERNAL_URL": "http://billing", "SERVICE_TOKEN": "svc"})); err != nil || cfg.BillingURL != "http://billing" {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
 }

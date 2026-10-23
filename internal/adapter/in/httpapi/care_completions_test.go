@@ -17,20 +17,20 @@ const chargeA = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 
 type stubBilling struct{ err error }
 
-func (s stubBilling) EncounterManualCharges(context.Context, string, string, string) ([]string, error) {
-	return []string{chargeA}, s.err
+func (s stubBilling) FreezeManualCharges(context.Context, string, string, string) (out.ManualChargeSettlement, error) {
+	return out.ManualChargeSettlement{Settled: true, ChargeIDs: []string{chargeA}, Version: 1}, s.err
 }
 
-type stubGate struct{ err error }
-
-func (s stubGate) Quiesce(context.Context, string, string, string) error { return s.err }
+func (s stubBilling) ReleaseManualChargeFreeze(context.Context, string, string, string) error {
+	return nil
+}
 
 type careEnv struct {
 	*entriesEnv
 	consultation, procedure string
 }
 
-func newCareEnv(t *testing.T, gate out.EncounterGate) *careEnv {
+func newCareEnv(t *testing.T, billing out.BillingAuthority) *careEnv {
 	store := persistence.NewMemory()
 	care, patients, clk, ids, apts := stubCare{}, stubPatients{}, &clock{t: testNow}, uuids{}, stubAppointments{}
 	routes := append(RecordRoutes(&usecase.RecordService{Repo: store, Care: care, Patients: patients, Clock: clk, IDs: ids}),
@@ -38,7 +38,7 @@ func newCareEnv(t *testing.T, gate out.EncounterGate) *careEnv {
 	routes = append(routes, TreatmentRoutes(&usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
 	routes = append(routes, ProcedureRoutes(&usecase.ProcedureService{Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients, Appointments: apts, Clock: clk, IDs: ids})...)
 	routes = append(routes, CareCompletionRoutes(&usecase.CareCompletionService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
-		Appointments: apts, Billing: stubBilling{}, Gate: gate, Clock: clk, IDs: ids})...)
+		Appointments: apts, Billing: billing, Clock: clk, IDs: ids})...)
 	h := NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Routes: routes})
 	rec := post(h, validToken(t), key1, `{"patientId":"`+patientA+`"}`)
 	var body map[string]any
@@ -58,7 +58,7 @@ func (e *careEnv) declaration(version string) string {
 }
 
 func TestDeclareCareCompletionAndReadClosure(t *testing.T) {
-	e := newCareEnv(t, stubGate{})
+	e := newCareEnv(t, stubBilling{})
 	path := "/api/v1/clinical-records/" + e.record + "/care-completions"
 	k := e.key()
 	rec, decl := e.send(t, path, k, e.declaration("1"))
@@ -99,7 +99,7 @@ func TestDeclareCareCompletionAndReadClosure(t *testing.T) {
 }
 
 func TestDeclarationValidationAndRoles(t *testing.T) {
-	e := newCareEnv(t, stubGate{})
+	e := newCareEnv(t, stubBilling{})
 	path := "/api/v1/clinical-records/" + e.record + "/care-completions"
 	for name, c := range map[string]struct{ body, field string }{
 		"consultation not uuid": {`{"consultationId":"c","appointmentId":"` + appointmentA + `","expectedVersion":1}`, "consultationId"},
@@ -122,7 +122,7 @@ func TestDeclarationValidationAndRoles(t *testing.T) {
 }
 
 func TestDeclarationFailsClosedUntilTheWriteGateExists(t *testing.T) {
-	e := newCareEnv(t, stubGate{err: out.ErrUnavailable})
+	e := newCareEnv(t, stubBilling{err: out.ErrUnavailable})
 	rec, _ := e.send(t, "/api/v1/clinical-records/"+e.record+"/care-completions", e.key(), e.declaration("1"))
 	if rec.Code != 503 || decodeEnvelope(t, rec).Error != "SERVICE_UNAVAILABLE" {
 		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
@@ -130,7 +130,7 @@ func TestDeclarationFailsClosedUntilTheWriteGateExists(t *testing.T) {
 }
 
 func TestRetryClosureRoute(t *testing.T) {
-	e := newCareEnv(t, stubGate{})
+	e := newCareEnv(t, stubBilling{})
 	_, decl := e.send(t, "/api/v1/clinical-records/"+e.record+"/care-completions", e.key(), e.declaration("1"))
 	path := "/api/v1/care-closures/" + decl["careClosureId"].(string) + "/retries"
 	if rec, _ := e.send(t, path, e.key(), `{"reason":"Precio corregido","expectedVersion":1}`); rec.Code != 409 || decodeEnvelope(t, rec).Error != "CARE_STATE_CONFLICT" {
@@ -155,7 +155,7 @@ func TestRetryClosureRoute(t *testing.T) {
 }
 
 func TestDeclaredEncounterRejectsLateWrites(t *testing.T) {
-	e := newCareEnv(t, stubGate{})
+	e := newCareEnv(t, stubBilling{})
 	if rec, _ := e.send(t, "/api/v1/clinical-records/"+e.record+"/care-completions", e.key(), e.declaration("1")); rec.Code != 201 {
 		t.Fatalf("declaration = %d", rec.Code)
 	}

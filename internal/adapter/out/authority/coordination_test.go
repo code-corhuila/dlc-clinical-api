@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
@@ -37,6 +38,30 @@ func capture(t *testing.T, status int, answer string) (*Client, *[]captured) {
 	return c, &got
 }
 
+func TestEncounterStatusReadsTheAppointment(t *testing.T) {
+	c, got := capture(t, 200, `{"appointmentId":"`+appointment+`","patientId":"`+patient+`","dentistId":"`+dentist+`","status":"EN_ATENCION","version":4}`)
+	s, err := Appointments{Client: c}.EncounterStatus(ctx, appointment)
+	want := out.EncounterStatus{AppointmentID: appointment, PatientID: patient, DentistID: dentist, Status: out.AppointmentInAttention, Version: 4}
+	if err != nil || s != want || (*got)[0].path != "/internal/v1/appointments/"+appointment+"/encounter-status" {
+		t.Fatalf("got %+v %v %+v", s, err, *got)
+	}
+	for name, c := range map[string]struct {
+		status int
+		body   string
+		want   error
+	}{
+		"unknown appointment": {404, `{"error":"NOT_FOUND","message":"x"}`, out.ErrNotFound},
+		"owner down":          {503, `{"error":"SERVICE_UNAVAILABLE","message":"x"}`, out.ErrUnavailable},
+		"other appointment":   {200, `{"appointmentId":"` + record + `","patientId":"` + patient + `","dentistId":"` + dentist + `","status":"EN_ATENCION","version":1}`, out.ErrUnavailable},
+		"unknown status":      {200, `{"appointmentId":"` + appointment + `","patientId":"` + patient + `","dentistId":"` + dentist + `","status":"OTRO","version":1}`, out.ErrUnavailable},
+	} {
+		client, _ := capture(t, c.status, c.body)
+		if _, err := (Appointments{Client: client}).EncounterStatus(ctx, appointment); !errors.Is(err, c.want) {
+			t.Fatalf("%s: got %v", name, err)
+		}
+	}
+}
+
 func TestActivityGuardAcquisitionAndResolution(t *testing.T) {
 	c, got := capture(t, 201, `{"id":"`+guardID+`","patientId":"`+patient+`","operationId":"`+operation+`","state":"OPEN","token":"proof"}`)
 	g, err := PatientGates{Client: c}.AcquireActivityGuard(ctx, patient, operation)
@@ -65,5 +90,31 @@ func TestActivityGuardAcquisitionAndResolution(t *testing.T) {
 	stale, _ := capture(t, 409, `{"error":"CONFLICT","message":"x"}`)
 	if err := (PatientGates{Client: stale}).ResolveGuard(ctx, guardID, "old", out.GuardAborted); !errors.Is(err, out.ErrOwnerConflict) {
 		t.Fatalf("stale token: %v", err)
+	}
+}
+
+func TestManualChargeFreezeAndRelease(t *testing.T) {
+	base := "/internal/v1/encounter-accounts/" + record + "/" + consult + "/manual-charges/freezes"
+	settlement := `{"operationId":"` + operation + `","freezeState":"FROZEN","clinicalRecordId":"` + record + `","consultationId":"` + consult + `","settled":true,"pendingWrites":0,"chargeIds":["` + guardID + `"],"version":2}`
+	c, got := capture(t, 200, settlement)
+	s, err := Billing{Client: c}.FreezeManualCharges(ctx, record, consult, operation)
+	if err != nil || !s.Settled || s.PendingWrites != 0 || !slices.Equal(s.ChargeIDs, []string{guardID}) || s.Version != 2 ||
+		(*got)[0].path != base || (*got)[0].body["operationId"] != operation || (*got)[0].idempotencyKey == "" {
+		t.Fatalf("got %+v %v %+v", s, err, *got)
+	}
+	open, _ := capture(t, 200, `{"operationId":"`+operation+`","freezeState":"OPEN","clinicalRecordId":"`+record+`","consultationId":"`+consult+`","settled":true}`)
+	if _, err := (Billing{Client: open}).FreezeManualCharges(ctx, record, consult, operation); !errors.Is(err, out.ErrUnavailable) {
+		t.Fatalf("a freeze that is not FROZEN is never trusted: %v", err)
+	}
+
+	rel, got := capture(t, 200, `{"operationId":"`+operation+`","freezeState":"OPEN","clinicalRecordId":"`+record+`","consultationId":"`+consult+`","settled":true}`)
+	if err := (Billing{Client: rel}).ReleaseManualChargeFreeze(ctx, record, consult, operation); err != nil || (*got)[0].path != base+"/"+operation+"/releases" {
+		t.Fatalf("release: %v %+v", err, *got)
+	}
+	for status, want := range map[int]error{404: nil, 409: out.ErrOwnerConflict, 503: out.ErrUnavailable} {
+		client, _ := capture(t, status, `{"error":"X","message":"x"}`)
+		if err := (Billing{Client: client}).ReleaseManualChargeFreeze(ctx, record, consult, operation); !errors.Is(err, want) {
+			t.Fatalf("release %d: got %v", status, err)
+		}
 	}
 }

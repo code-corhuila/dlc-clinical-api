@@ -51,13 +51,19 @@ func (r *fakeProcedures) CompleteProcedure(_ context.Context, p model.Procedure,
 	return nil
 }
 
+// fakeAppointments answers encounter-status for one patient and dentist.
 type fakeAppointments struct {
-	inAttention bool
-	err         error
+	inAttention          bool
+	err                  error
+	patientID, dentistID string
 }
 
-func (a *fakeAppointments) InAttention(context.Context, string, string) (bool, error) {
-	return a.inAttention, a.err
+func (a *fakeAppointments) EncounterStatus(_ context.Context, id string) (out.EncounterStatus, error) {
+	status := "CONFIRMADA"
+	if a.inAttention {
+		status = out.AppointmentInAttention
+	}
+	return out.EncounterStatus{AppointmentID: id, PatientID: a.patientID, DentistID: a.dentistID, Status: status, Version: 1}, a.err
 }
 
 type procedureFixture struct {
@@ -84,7 +90,7 @@ func setupProcedures(t *testing.T, start bool) procedureFixture {
 	for _, p := range planned.Treatment.Procedures {
 		procs.items[p.ID] = p
 	}
-	pf := procedureFixture{treatmentFixture: tf, procs: procs, apts: &fakeAppointments{inAttention: true},
+	pf := procedureFixture{treatmentFixture: tf, procs: procs, apts: &fakeAppointments{inAttention: true, patientID: "pat-1", dentistID: dentist.ID},
 		procedure: planned.Treatment.Procedures[0].ID, treatment: planned.Treatment.ID}
 	pf.svc = &ProcedureService{Procedures: procs, Treatments: tf.repo, Closures: tf.encounters, Care: tf.care, Patients: tf.patients, Appointments: pf.apts, Clock: tf.svc.Clock, IDs: tf.svc.IDs}
 	return pf

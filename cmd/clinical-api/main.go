@@ -50,11 +50,11 @@ func run(logger *slog.Logger) error {
 	}
 	defer store.Close(context.Background())
 
-	care, patients, sessions, err := owners(cfg)
+	own, err := owners(cfg)
 	if err != nil {
 		return err
 	}
-	// Owners without a configured contract, and operations without one, fail closed.
+	care, patients := own.care, own.patients
 	records := &usecase.RecordService{
 		Repo: store, Care: care, Patients: patients,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
@@ -69,19 +69,18 @@ func run(logger *slog.Logger) error {
 	}
 	procedures := &usecase.ProcedureService{
 		Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients,
-		Appointments: authority.Unavailable{}, Clock: system.Clock{}, IDs: system.UUIDs{},
+		Appointments: own.appointments, Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes := append(httpapi.RecordRoutes(records), httpapi.EntryRoutes(entries)...)
 	routes = append(routes, httpapi.ProcedureRoutes(procedures)...)
-	// The cross-owner write gate and Billing are release gates: declarations fail closed (503).
 	careCompletions := &usecase.CareCompletionService{
 		Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
-		Appointments: authority.Unavailable{}, Billing: authority.Unavailable{}, Gate: authority.Unavailable{},
+		Appointments: own.appointments, Billing: own.billing,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes = append(routes, httpapi.CareCompletionRoutes(careCompletions)...)
 	router := httpapi.NewRouter(httpapi.Options{
-		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: sessions},
+		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
 		Logger:   logger,
 		Ready:    store.Ping,
 		Routes:   append(routes, httpapi.TreatmentRoutes(treatments)...),
@@ -135,20 +134,26 @@ func loadPublicKey(cfg config.Config) (*rsa.PublicKey, error) {
 	return httpapi.ParseRSAPublicKey(text)
 }
 
-// owners wires the private owner contracts that are configured; any owner
-// without a URL keeps failing closed through authority.Unavailable.
-func owners(cfg config.Config) (out.CareAuthority, out.PatientDirectory, httpapi.SessionValidator, error) {
-	var care out.CareAuthority = authority.Unavailable{}
-	var patients out.PatientDirectory = authority.Unavailable{}
-	var sessions httpapi.SessionValidator
-	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" {
-		return care, patients, sessions, nil
+// ownerSet holds the private owner contracts. Every owner without a configured
+// URL answers out.ErrUnavailable, so its operations fail closed (503).
+type ownerSet struct {
+	care         out.CareAuthority
+	appointments out.AppointmentAuthority
+	patients     out.PatientDirectory
+	billing      out.BillingAuthority
+	sessions     httpapi.SessionValidator
+}
+
+func owners(cfg config.Config) (ownerSet, error) {
+	set := ownerSet{care: authority.Unavailable{}, appointments: authority.Unavailable{}, patients: authority.Unavailable{}, billing: authority.Unavailable{}}
+	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" && cfg.BillingURL == "" {
+		return set, nil
 	}
 	token := cfg.ServiceToken
 	if cfg.ServiceTokenFile != "" {
 		raw, err := os.ReadFile(cfg.ServiceTokenFile)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
+			return ownerSet{}, fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
 		}
 		token = strings.TrimSpace(string(raw))
 	}
@@ -156,13 +161,17 @@ func owners(cfg config.Config) (out.CareAuthority, out.PatientDirectory, httpapi
 		return &authority.Client{BaseURL: strings.TrimRight(base, "/"), Token: token, HTTP: &http.Client{Timeout: cfg.InternalTimeout}}
 	}
 	if cfg.AppointmentsURL != "" {
-		care = authority.Appointments{Client: client(cfg.AppointmentsURL)}
+		apts := authority.Appointments{Client: client(cfg.AppointmentsURL)}
+		set.care, set.appointments = apts, apts
 	}
 	if cfg.PatientsURL != "" {
-		patients = authority.Patients{Client: client(cfg.PatientsURL)}
+		set.patients = authority.Patients{Client: client(cfg.PatientsURL)}
+	}
+	if cfg.BillingURL != "" {
+		set.billing = authority.Billing{Client: client(cfg.BillingURL)}
 	}
 	if cfg.AuthURL != "" {
-		sessions = authority.Sessions{Client: client(cfg.AuthURL)}
+		set.sessions = authority.Sessions{Client: client(cfg.AuthURL)}
 	}
-	return care, patients, sessions, nil
+	return set, nil
 }

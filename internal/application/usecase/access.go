@@ -4,6 +4,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -103,6 +104,23 @@ func pageWindow(p in.PageRequest) (page, limit int, err error) {
 		return 0, 0, &model.Error{Kind: model.KindInvalidInput, Code: "VALIDATION_ERROR", Message: "must be between 1 and 100", Field: "limit"}
 	}
 	return page, limit, nil
+}
+
+// attendingEncounter reads the appointment from Appointments and accepts it
+// only while EN_ATENCION for this patient (and dentist, when given). An
+// unknown appointment is an inconsistent reference (409); an unavailable
+// authority fails closed (503).
+func attendingEncounter(ctx context.Context, apts out.AppointmentAuthority, appointmentID, patientID, dentistID string) (out.EncounterStatus, error) {
+	st, err := apts.EncounterStatus(ctx, appointmentID)
+	switch {
+	case errors.Is(err, out.ErrNotFound):
+		return out.EncounterStatus{}, careStateConflict()
+	case err != nil:
+		return out.EncounterStatus{}, unavailable("appointment authority", err)
+	case st.Status != out.AppointmentInAttention || st.PatientID != patientID || (dentistID != "" && st.DentistID != dentistID):
+		return out.EncounterStatus{}, careStateConflict()
+	}
+	return st, nil
 }
 
 // ensureOpen rejects a write to an encounter whose closure was already

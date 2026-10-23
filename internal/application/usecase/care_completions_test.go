@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/in"
@@ -17,6 +18,7 @@ type fakeClosures struct {
 	outbox    []out.OutboxEvent
 	completed []string
 	retried   int
+	commitErr error // fails the declaration commit, as a concurrent write would
 }
 
 func (r *fakeClosures) FindIdempotency(_ context.Context, a, o, k string) (out.IdempotencyRecord, bool, error) {
@@ -46,6 +48,9 @@ func (r *fakeClosures) CompletedProcedureIDs(context.Context, string, string) ([
 }
 
 func (r *fakeClosures) DeclareCareCompletion(_ context.Context, c model.CareClosure, from int, idem out.IdempotencyRecord, ev []out.OutboxEvent) error {
+	if r.commitErr != nil {
+		return r.commitErr
+	}
 	if _, ok := r.idem[scope(idem.ActorID, idem.Operation, idem.Key)]; ok {
 		return out.ErrDuplicateIdempotency
 	}
@@ -60,24 +65,29 @@ func (r *fakeClosures) DeclareCareCompletion(_ context.Context, c model.CareClos
 	return nil
 }
 
+// fakeBilling freezes an encounter's charges and records every release.
 type fakeBilling struct {
-	charges []string
-	err     error
+	charges  []string
+	pending  int
+	err      error
+	frozen   []string
+	released []string
 }
 
-func (b *fakeBilling) EncounterManualCharges(context.Context, string, string, string) ([]string, error) {
-	return b.charges, b.err
+func (b *fakeBilling) FreezeManualCharges(_ context.Context, _, _, operationID string) (out.ManualChargeSettlement, error) {
+	b.frozen = append(b.frozen, operationID)
+	return out.ManualChargeSettlement{Settled: b.pending == 0, PendingWrites: b.pending, ChargeIDs: b.charges, Version: 1}, b.err
 }
 
-type fakeGate struct{ err error }
-
-func (g *fakeGate) Quiesce(context.Context, string, string, string) error { return g.err }
+func (b *fakeBilling) ReleaseManualChargeFreeze(_ context.Context, _, _, operationID string) error {
+	b.released = append(b.released, operationID)
+	return nil
+}
 
 type closureFixture struct {
 	entryFixture
 	closures     *fakeClosures
 	billing      *fakeBilling
-	gate         *fakeGate
 	appointments *fakeAppointments
 	svc          *CareCompletionService
 	consultation string
@@ -92,10 +102,9 @@ func setupClosures(t *testing.T) closureFixture {
 	cf := closureFixture{entryFixture: ef, consultation: cons.Entry.ID,
 		closures:     &fakeClosures{records: ef.repo, items: map[string]model.CareClosure{}, idem: map[string]out.IdempotencyRecord{}, completed: []string{"proc-2", "proc-1"}},
 		billing:      &fakeBilling{charges: []string{"charge-1"}},
-		gate:         &fakeGate{},
-		appointments: &fakeAppointments{inAttention: true}}
+		appointments: &fakeAppointments{inAttention: true, patientID: "pat-1", dentistID: dentist.ID}}
 	cf.svc = &CareCompletionService{Records: ef.repo, Entries: ef.entries, Closures: cf.closures, Care: ef.care, Patients: ef.patients,
-		Appointments: cf.appointments, Billing: cf.billing, Gate: cf.gate, Clock: ef.svc.Clock, IDs: ef.svc.IDs}
+		Appointments: cf.appointments, Billing: cf.billing, Clock: ef.svc.Clock, IDs: ef.svc.IDs}
 	return cf
 }
 
@@ -145,14 +154,17 @@ func TestDeclareCareCompletionRules(t *testing.T) {
 		want  model.Kind
 		code  string
 	}{
-		"administrator":      {admin, nil, nil, model.KindForbidden, "FORBIDDEN"},
-		"assistant":          {assistant, nil, nil, model.KindForbidden, "FORBIDDEN"},
-		"unassigned dentist": {other, nil, nil, model.KindNotFound, "NOT_FOUND"},
-		"stale record":       {dentist, nil, func(c *in.DeclareCareCompletionCommand) { c.ExpectedVersion = 9 }, model.KindStaleVersion, "STALE_VERSION"},
-		"not a consultation": {dentist, nil, func(c *in.DeclareCareCompletionCommand) { c.ConsultationID = "nope" }, model.KindRule, "BUSINESS_RULE_VIOLATION"},
-		"other encounter":    {dentist, nil, func(c *in.DeclareCareCompletionCommand) { c.AppointmentID = "apt-9" }, model.KindRule, "BUSINESS_RULE_VIOLATION"},
-		"not in attention":   {dentist, func(cf closureFixture) { cf.appointments.inAttention = false }, nil, model.KindConflict, "CARE_STATE_CONFLICT"},
-		"inactive patient":   {dentist, func(cf closureFixture) { cf.patients.inactive["pat-1"] = true }, nil, model.KindRule, "BUSINESS_RULE_VIOLATION"},
+		"administrator":                 {admin, nil, nil, model.KindForbidden, "FORBIDDEN"},
+		"assistant":                     {assistant, nil, nil, model.KindForbidden, "FORBIDDEN"},
+		"unassigned dentist":            {other, nil, nil, model.KindNotFound, "NOT_FOUND"},
+		"stale record":                  {dentist, nil, func(c *in.DeclareCareCompletionCommand) { c.ExpectedVersion = 9 }, model.KindStaleVersion, "STALE_VERSION"},
+		"not a consultation":            {dentist, nil, func(c *in.DeclareCareCompletionCommand) { c.ConsultationID = "nope" }, model.KindRule, "BUSINESS_RULE_VIOLATION"},
+		"other encounter":               {dentist, nil, func(c *in.DeclareCareCompletionCommand) { c.AppointmentID = "apt-9" }, model.KindRule, "BUSINESS_RULE_VIOLATION"},
+		"not in attention":              {dentist, func(cf closureFixture) { cf.appointments.inAttention = false }, nil, model.KindConflict, "CARE_STATE_CONFLICT"},
+		"inactive patient":              {dentist, func(cf closureFixture) { cf.patients.inactive["pat-1"] = true }, nil, model.KindRule, "BUSINESS_RULE_VIOLATION"},
+		"another dentist's appointment": {dentist, func(cf closureFixture) { cf.appointments.dentistID = "dentist-9" }, nil, model.KindConflict, "CARE_STATE_CONFLICT"},
+		"unknown appointment":           {dentist, func(cf closureFixture) { cf.appointments.err = out.ErrNotFound }, nil, model.KindConflict, "CARE_STATE_CONFLICT"},
+		"billing writes pending":        {dentist, func(cf closureFixture) { cf.billing.pending = 1 }, nil, model.KindConflict, "CARE_STATE_CONFLICT"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -172,11 +184,33 @@ func TestDeclareCareCompletionRules(t *testing.T) {
 	}
 }
 
-func TestDeclarationFailsClosedWithoutGateOrBilling(t *testing.T) {
+func TestRejectedDeclarationReleasesTheBillingFreeze(t *testing.T) {
 	for name, prep := range map[string]func(closureFixture){
-		"write gate unverified": func(cf closureFixture) { cf.gate.err = out.ErrUnavailable },
+		"pending manual charge": func(cf closureFixture) { cf.billing.pending = 2 },
 		"billing unavailable":   func(cf closureFixture) { cf.billing.err = out.ErrUnavailable },
-		"appointments down":     func(cf closureFixture) { cf.appointments.err = out.ErrUnavailable },
+		"stale at commit":       func(cf closureFixture) { cf.closures.commitErr = out.ErrVersionConflict },
+	} {
+		t.Run(name, func(t *testing.T) {
+			cf := setupClosures(t)
+			prep(cf)
+			if _, err := cf.declare(dentist, "k-rel-01"); err == nil {
+				t.Fatal("expected a rejection")
+			}
+			if len(cf.billing.frozen) != 1 || !slices.Equal(cf.billing.released, cf.billing.frozen) || len(cf.closures.outbox) != 0 {
+				t.Fatalf("frozen %v released %v", cf.billing.frozen, cf.billing.released)
+			}
+		})
+	}
+	cf := setupClosures(t)
+	if _, err := cf.declare(dentist, "k-rel-02"); err != nil || len(cf.billing.released) != 0 {
+		t.Fatalf("a committed declaration keeps its freeze: %v %v", err, cf.billing.released)
+	}
+}
+
+func TestDeclarationFailsClosedWithoutOwners(t *testing.T) {
+	for name, prep := range map[string]func(closureFixture){
+		"billing unavailable": func(cf closureFixture) { cf.billing.err = out.ErrUnavailable },
+		"appointments down":   func(cf closureFixture) { cf.appointments.err = out.ErrUnavailable },
 	} {
 		t.Run(name, func(t *testing.T) {
 			cf := setupClosures(t)
