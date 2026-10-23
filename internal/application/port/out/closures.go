@@ -20,6 +20,10 @@ type ClosureRepository interface {
 	// DeclareCareCompletion inserts the closure, raises the record version only
 	// while it is still recordFromVersion, and stores key and events atomically.
 	DeclareCareCompletion(ctx context.Context, c model.CareClosure, recordFromVersion int, idem IdempotencyRecord, events []OutboxEvent) error
+	// RetryClosure stores the resumed closure only from fromVersion and puts the
+	// encounter's original ClinicalCareCompleted back to PENDING, keeping its
+	// eventId (ADR-010: retransmission keeps the original identity).
+	RetryClosure(ctx context.Context, c model.CareClosure, fromVersion int, idem IdempotencyRecord) error
 }
 
 // BillingAuthority lists, from Billing, the manual charges of an encounter;
