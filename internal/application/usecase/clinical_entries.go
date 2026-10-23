@@ -167,16 +167,23 @@ func (s *EntryService) replay(ctx context.Context, actor in.Actor, op, key, hash
 	return in.EntryResult{Entry: entry, Replayed: true}, true, nil
 }
 
-// create appends the entry under the patient guard; a diagnosis is admitted
-// to the encounter of its consultation (ADR-017 §5).
+// create appends the entry under the patient guard. A diagnosis is admitted
+// to the encounter of its consultation and an appointment entry to the
+// encounter of that appointment's consultation (ADR-017 §5).
 func (s *EntryService) create(ctx context.Context, actor in.Actor, rec model.ClinicalRecord, op, key, hash string, e model.Entry, events []out.OutboxEvent) (in.EntryResult, error) {
 	idem := out.IdempotencyRecord{
 		ActorID: actor.ID, Operation: op, Key: key, RequestHash: hash, ResourceID: e.ID,
 		ResponseStatus: statusCreated, CreatedAt: e.CreatedAt, ExpiresAt: e.CreatedAt.Add(idempotencyRetention),
 	}
 	var encounter *out.EncounterKey
-	if e.ConsultationID != "" {
+	switch {
+	case e.ConsultationID != "":
 		encounter = &out.EncounterKey{RecordID: rec.ID, ConsultationID: e.ConsultationID}
+	case e.Kind != model.KindConsultation:
+		var err error
+		if encounter, err = appointmentEncounter(ctx, s.Entries, rec.ID, e.AppointmentID); err != nil {
+			return in.EntryResult{}, err
+		}
 	}
 	err := s.Guard.Run(ctx, GuardedWrite{Actor: actor, PatientID: rec.PatientID, Encounter: encounter,
 		Commit: func(tagged context.Context) error { return s.Entries.CreateEntry(tagged, e, idem, events) }})

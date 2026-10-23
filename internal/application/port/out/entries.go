@@ -30,4 +30,11 @@ type EntryRepository interface {
 	GetEntry(ctx context.Context, id string) (model.Entry, error)
 	// ListEntries returns a record's entries oldest first and their total.
 	ListEntries(ctx context.Context, recordID string, offset, limit int) ([]model.Entry, int, error)
+	ConsultationLookup
+}
+
+// ConsultationLookup finds the consultation that opens a record's encounter
+// for an appointment (the earliest one), if it exists.
+type ConsultationLookup interface {
+	ConsultationForAppointment(ctx context.Context, recordID, appointmentID string) (string, bool, error)
 }

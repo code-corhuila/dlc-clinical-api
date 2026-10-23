@@ -92,7 +92,7 @@ func setupProcedures(t *testing.T, start bool) procedureFixture {
 	}
 	pf := procedureFixture{treatmentFixture: tf, procs: procs, apts: &fakeAppointments{inAttention: true, patientID: "pat-1", dentistID: dentist.ID},
 		procedure: planned.Treatment.Procedures[0].ID, treatment: planned.Treatment.ID}
-	pf.svc = &ProcedureService{Procedures: procs, Treatments: tf.repo, Closures: tf.encounters, Care: tf.care, Patients: tf.patients, Appointments: pf.apts, Clock: tf.svc.Clock, IDs: tf.svc.IDs}
+	pf.svc = &ProcedureService{Procedures: procs, Treatments: tf.repo, Closures: tf.encounters, Care: tf.care, Patients: tf.patients, Appointments: pf.apts, Consultations: tf.entries, Guard: tf.svc.Guard, Clock: tf.svc.Clock, IDs: tf.svc.IDs}
 	return pf
 }
 

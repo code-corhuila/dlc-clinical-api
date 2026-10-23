@@ -192,3 +192,16 @@ func (m *Mongo) ListEntries(ctx context.Context, recordID string, offset, limit 
 	}
 	return items, total, nil
 }
+
+func (m *Mongo) ConsultationForAppointment(ctx context.Context, recordID, appointmentID string) (string, bool, error) {
+	var d struct {
+		ID string `bson:"_id"`
+	}
+	err := m.db.Collection("consultations").FindOne(ctx,
+		bson.D{{Key: "clinicalRecordId", Value: recordID}, {Key: "appointmentId", Value: appointmentID}},
+		options.FindOne().SetSort(bson.D{{Key: "createdAt", Value: 1}, {Key: "_id", Value: 1}}).SetProjection(bson.D{{Key: "_id", Value: 1}})).Decode(&d)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return "", false, nil
+	}
+	return d.ID, err == nil, err
+}

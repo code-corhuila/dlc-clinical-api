@@ -31,6 +31,15 @@ func (r *fakeEntries) CreateEntry(_ context.Context, e model.Entry, idem out.Ide
 	return nil
 }
 
+func (r *fakeEntries) ConsultationForAppointment(_ context.Context, recordID, appointmentID string) (string, bool, error) {
+	for _, e := range r.entries {
+		if e.Kind == model.KindConsultation && e.RecordID == recordID && e.AppointmentID == appointmentID {
+			return e.ID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func (r *fakeEntries) GetEntry(_ context.Context, id string) (model.Entry, error) {
 	e, ok := r.entries[id]
 	if !ok {

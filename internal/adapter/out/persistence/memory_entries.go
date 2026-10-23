@@ -63,3 +63,18 @@ func (m *Memory) Outbox() []out.OutboxEvent {
 	defer m.mu.Unlock()
 	return append([]out.OutboxEvent(nil), m.outbox...)
 }
+
+func (m *Memory) ConsultationForAppointment(_ context.Context, recordID, appointmentID string) (string, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var first model.Entry
+	for _, e := range m.entries {
+		if e.Kind != model.KindConsultation || e.RecordID != recordID || e.AppointmentID != appointmentID {
+			continue
+		}
+		if first.ID == "" || e.CreatedAt.Before(first.CreatedAt) || (e.CreatedAt.Equal(first.CreatedAt) && e.ID < first.ID) {
+			first = e
+		}
+	}
+	return first.ID, first.ID != "", nil
+}
