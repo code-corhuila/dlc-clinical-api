@@ -23,12 +23,13 @@ type Memory struct {
 	treats  map[string]model.Treatment
 	procs   map[string]model.Procedure
 	sources map[string]bool
+	closure map[string]model.CareClosure
 }
 
 // NewMemory returns an empty repository.
 func NewMemory() *Memory {
 	return &Memory{records: map[string]model.ClinicalRecord{}, keys: map[string]out.IdempotencyRecord{}, entries: map[string]model.Entry{}, treats: map[string]model.Treatment{},
-		procs: map[string]model.Procedure{}, sources: map[string]bool{}}
+		procs: map[string]model.Procedure{}, sources: map[string]bool{}, closure: map[string]model.CareClosure{}}
 }
 
 var (
@@ -36,6 +37,7 @@ var (
 	_ out.EntryRepository     = (*Memory)(nil)
 	_ out.TreatmentRepository = (*Memory)(nil)
 	_ out.ProcedureRepository = (*Memory)(nil)
+	_ out.ClosureRepository   = (*Memory)(nil)
 )
 
 func keyScope(actor, operation, key string) string { return actor + "\x00" + operation + "\x00" + key }
