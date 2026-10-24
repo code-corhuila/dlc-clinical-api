@@ -20,14 +20,6 @@ const (
 	RoleAssistant     = "SECRETARY_ASSISTANT"
 )
 
-// Explicit clinical permissions an Administrator needs besides the role
-// (PAT-003, design-decisions.md). Names are an implementation choice pending
-// the Auth permission catalogue.
-const (
-	PermClinicalRead  = "clinical:read"
-	PermClinicalWrite = "clinical:write"
-)
-
 type access int
 
 const (
@@ -53,11 +45,10 @@ func clinicalAdmin(a in.Actor, mode access) bool {
 	if !slices.Contains(a.Roles, RoleAdministrator) {
 		return false
 	}
-	perm := PermClinicalRead
 	if mode == accessWrite {
-		perm = PermClinicalWrite
+		return a.ClinicalWrite
 	}
-	return slices.Contains(a.Permissions, perm)
+	return a.ClinicalRead
 }
 
 // mayUseClinical rejects actors whose role can never touch clinical data;

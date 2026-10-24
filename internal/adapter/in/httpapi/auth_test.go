@@ -66,8 +66,14 @@ func TestRejectedTokens(t *testing.T) {
 		"wrong issuer":        signToken(t, rs, with(func(c map[string]any) { c["iss"] = "https://evil.test" }), testKey),
 		"wrong audience":      signToken(t, rs, with(func(c map[string]any) { c["aud"] = "billing-service" }), testKey),
 		"not yet valid":       signToken(t, rs, with(func(c map[string]any) { c["nbf"] = testNow.Add(time.Minute).Unix() }), testKey),
-		"two segments":        "abc.def",
-		"garbage":             "not-a-jwt",
+		// authentication.md: sub, iss, aud, iat, exp, jti, sid, roles and permissions are required.
+		"no iat":         signToken(t, rs, with(func(c map[string]any) { delete(c, "iat") }), testKey),
+		"no jti":         signToken(t, rs, with(func(c map[string]any) { delete(c, "jti") }), testKey),
+		"no sid":         signToken(t, rs, with(func(c map[string]any) { delete(c, "sid") }), testKey),
+		"no roles":       signToken(t, rs, with(func(c map[string]any) { delete(c, "roles") }), testKey),
+		"no permissions": signToken(t, rs, with(func(c map[string]any) { delete(c, "permissions") }), testKey),
+		"two segments":   "abc.def",
+		"garbage":        "not-a-jwt",
 	}
 	for name, token := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -161,5 +167,23 @@ func TestRevokedSessionIs401AndUnavailableAuthIs503(t *testing.T) {
 	bad := &fakeSessions{active: true}
 	if do(sessionRouter(bad), http.MethodGet, "/api/v1/whoami", "x.y.z", nil, nil); bad.got != "" {
 		t.Fatal("a locally invalid token is never sent to auth")
+	}
+}
+
+// The Auth permission catalogue is not published yet: the claim names that
+// grant clinical access are configuration, resolved here into booleans.
+func TestVerifierResolvesTheConfiguredClinicalPermissions(t *testing.T) {
+	v := testVerifier()
+	v.ReadPermission, v.WritePermission = "clinical.history.read", "clinical.history.write"
+	c := validClaims()
+	c["permissions"] = []string{"clinical.history.read"}
+	p, err := v.Verify(signToken(t, map[string]any{"alg": "RS256"}, c, testKey))
+	if err != nil || !p.ClinicalRead || p.ClinicalWrite {
+		t.Fatalf("principal = %+v %v", p, err)
+	}
+	c["permissions"] = []string{"clinical:read", "clinical:write"} // other names grant nothing
+	p, _ = v.Verify(signToken(t, map[string]any{"alg": "RS256"}, c, testKey))
+	if p.ClinicalRead || p.ClinicalWrite {
+		t.Fatalf("unconfigured names must not grant access: %+v", p)
 	}
 }

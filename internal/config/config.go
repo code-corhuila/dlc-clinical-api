@@ -23,6 +23,8 @@ type Config struct {
 	JWTAudience       string
 	JWTPublicKey      string // PEM, also accepted on one line with literal "\n"
 	JWTPublicKeyFile  string
+	JWTJWKSURL        string        // Auth /api/v1/auth/jwks; required outside dev (key rotation)
+	JWKSMinRefresh    time.Duration // least time between JWKS refreshes for an unknown kid
 	MongoURI          string
 	MongoDatabase     string
 	MongoMaxPoolSize  int           // connection pool size
@@ -31,10 +33,19 @@ type Config struct {
 	PatientsURL       string        // patients-service /internal/v1 base; empty fails closed
 	AppointmentsURL   string        // appointments-service /internal/v1 base; empty fails closed
 	BillingURL        string        // billing-service /internal/v1 base; empty fails closed
-	ServiceToken      string        // service credential issued by identity, never versioned
+	ServiceToken      string        // shared service credential (dev), never versioned
 	ServiceTokenFile  string
-	InternalTimeout   time.Duration  // bound of each owner call
-	ClinicTimezone    *time.Location // calendar of the HU-CLN-003 dashboard
+	// One credential per owner audience (authentication.md); required outside dev.
+	AuthTokenFile         string
+	PatientsTokenFile     string
+	AppointmentsTokenFile string
+	BillingTokenFile      string
+	InternalTimeout       time.Duration  // bound of each owner call
+	ClinicTimezone        *time.Location // calendar of the HU-CLN-003 dashboard
+	// Token permissions that grant an Administrator clinical access (PAT-003),
+	// pending the Auth permission catalogue.
+	ClinicalReadPermission  string
+	ClinicalWritePermission string
 }
 
 var environments = map[string]bool{"dev": true, "qa": true, "main": true}
@@ -96,12 +107,24 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if err := loadOwners(lookup, &cfg); err != nil {
 		return Config{}, err
 	}
+	cfg.ClinicalReadPermission, cfg.ClinicalWritePermission = "clinical:read", "clinical:write"
+	for key, target := range map[string]*string{"CLINICAL_READ_PERMISSION": &cfg.ClinicalReadPermission, "CLINICAL_WRITE_PERMISSION": &cfg.ClinicalWritePermission} {
+		if v, ok := lookup(key); ok {
+			if v == "" {
+				return Config{}, fmt.Errorf("%s must not be empty", key)
+			}
+			*target = v
+		}
+	}
 	loc, err := loadClinicTimezone(lookup)
 	if err != nil {
 		return Config{}, err
 	}
 	cfg.ClinicTimezone = loc
 	if cfg.AppEnv != "dev" {
+		if cfg.JWTJWKSURL == "" {
+			return Config{}, fmt.Errorf("JWT_JWKS_URL is required in %s: Auth rotates its signing keys by kid", cfg.AppEnv)
+		}
 		if cfg.AuthURL == "" {
 			return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
 		}
@@ -113,24 +136,44 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 				return Config{}, fmt.Errorf("%s is required in %s", key, cfg.AppEnv)
 			}
 		}
+		for key, file := range map[string]string{"AUTH_SERVICE_TOKEN_FILE": cfg.AuthTokenFile, "PATIENTS_SERVICE_TOKEN_FILE": cfg.PatientsTokenFile,
+			"APPOINTMENTS_SERVICE_TOKEN_FILE": cfg.AppointmentsTokenFile, "BILLING_SERVICE_TOKEN_FILE": cfg.BillingTokenFile} {
+			if file == "" {
+				return Config{}, fmt.Errorf("%s is required in %s: each owner has its own service credential", key, cfg.AppEnv)
+			}
+		}
 	}
 	return cfg, nil
 }
 
-// loadIdentity requires the issuer, audience and exactly one public key source.
-// The service never holds a private or shared key.
+// loadIdentity requires the issuer, audience and exactly one public key source:
+// the Auth JWKS, or one configured key. The service never holds a private key.
 func loadIdentity(lookup func(string) (string, bool), cfg *Config) error {
 	cfg.JWTIssuer, _ = lookup("JWT_ISSUER")
 	cfg.JWTAudience, _ = lookup("JWT_AUDIENCE")
 	cfg.JWTPublicKey, _ = lookup("JWT_PUBLIC_KEY")
 	cfg.JWTPublicKeyFile, _ = lookup("JWT_PUBLIC_KEY_FILE")
+	cfg.JWTJWKSURL, _ = lookup("JWT_JWKS_URL")
+	sources := 0
+	for _, v := range []string{cfg.JWTPublicKey, cfg.JWTPublicKeyFile, cfg.JWTJWKSURL} {
+		if v != "" {
+			sources++
+		}
+	}
 	switch {
 	case cfg.JWTIssuer == "":
 		return fmt.Errorf("JWT_ISSUER is required")
 	case cfg.JWTAudience == "":
 		return fmt.Errorf("JWT_AUDIENCE is required")
-	case (cfg.JWTPublicKey == "") == (cfg.JWTPublicKeyFile == ""):
-		return fmt.Errorf("set exactly one of JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE")
+	case sources != 1:
+		return fmt.Errorf("set exactly one of JWT_JWKS_URL, JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE")
+	}
+	refresh, err := positiveDuration(lookup, "JWKS_MIN_REFRESH", 30*time.Second)
+	if err != nil {
+		return err
+	}
+	if cfg.JWTJWKSURL != "" {
+		cfg.JWKSMinRefresh = refresh
 	}
 	return nil
 }
@@ -175,13 +218,24 @@ func loadOwners(lookup func(string) (string, bool), cfg *Config) error {
 	cfg.BillingURL, _ = lookup("BILLING_INTERNAL_URL")
 	cfg.ServiceToken, _ = lookup("SERVICE_TOKEN")
 	cfg.ServiceTokenFile, _ = lookup("SERVICE_TOKEN_FILE")
+	cfg.AuthTokenFile, _ = lookup("AUTH_SERVICE_TOKEN_FILE")
+	cfg.PatientsTokenFile, _ = lookup("PATIENTS_SERVICE_TOKEN_FILE")
+	cfg.AppointmentsTokenFile, _ = lookup("APPOINTMENTS_SERVICE_TOKEN_FILE")
+	cfg.BillingTokenFile, _ = lookup("BILLING_SERVICE_TOKEN_FILE")
 	timeout, err := positiveDuration(lookup, "INTERNAL_TIMEOUT", 3*time.Second)
 	if err != nil {
 		return err
 	}
 	cfg.InternalTimeout = timeout
-	if (cfg.AuthURL != "" || cfg.PatientsURL != "" || cfg.AppointmentsURL != "" || cfg.BillingURL != "") && (cfg.ServiceToken == "") == (cfg.ServiceTokenFile == "") {
-		return fmt.Errorf("set exactly one of SERVICE_TOKEN or SERVICE_TOKEN_FILE when an internal owner URL is configured")
+	if cfg.ServiceToken != "" && cfg.ServiceTokenFile != "" {
+		return fmt.Errorf("set at most one of SERVICE_TOKEN or SERVICE_TOKEN_FILE")
+	}
+	shared := cfg.ServiceToken != "" || cfg.ServiceTokenFile != ""
+	for _, o := range []struct{ name, url, file string }{{"AUTH", cfg.AuthURL, cfg.AuthTokenFile}, {"PATIENTS", cfg.PatientsURL, cfg.PatientsTokenFile},
+		{"APPOINTMENTS", cfg.AppointmentsURL, cfg.AppointmentsTokenFile}, {"BILLING", cfg.BillingURL, cfg.BillingTokenFile}} {
+		if o.url != "" && o.file == "" && !shared {
+			return fmt.Errorf("%s_INTERNAL_URL needs %s_SERVICE_TOKEN_FILE, SERVICE_TOKEN_FILE or SERVICE_TOKEN", o.name, o.name)
+		}
 	}
 	return nil
 }

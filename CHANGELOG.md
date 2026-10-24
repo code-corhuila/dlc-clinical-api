@@ -42,6 +42,15 @@ as five processes from one image.
 
 ### Fixed
 
+- Each owner gets its own service credential (`<OWNER>_SERVICE_TOKEN_FILE`, required in qa and main) read on every
+  call, so a short-lived service JWT with that owner's audience can be rotated in place; the shared `SERVICE_TOKEN` is for
+  dev. An unreadable credential fails closed without calling the owner.
+- The permission names that give an Administrator clinical access are configuration (`CLINICAL_READ_PERMISSION`,
+  `CLINICAL_WRITE_PERMISSION`, default `clinical:read`/`clinical:write`) resolved by the HTTP adapter; the use cases
+  receive booleans. Auth has not published its permission catalogue yet: these must match the names it issues.
+- Access tokens are verified with the Auth JWKS by `kid` (`JWT_JWKS_URL`, required in qa and main), so a key rotation
+  needs no restart; an unknown `kid` refreshes the set at most every `JWKS_MIN_REFRESH`, and an unreachable JWKS answers
+  503. Tokens without `iat`, `jti`, `sid`, `roles` or `permissions` are rejected (authentication.md).
 - Outside `dev` every owner URL is required, and every process refuses a database below the `schema_info` version it
   requires, instead of starting healthy and answering 503 or accepting duplicates.
 - `scripts/integration-test.sh` runs the MongoDB and RabbitMQ integration tests against disposable, migrated instances;

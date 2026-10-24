@@ -37,7 +37,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	key, err := loadPublicKey(cfg)
+	keys, err := signingKeys(cfg)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func run(logger *slog.Logger) error {
 	analytics := &usecase.DashboardService{Analytics: store, Clock: system.Clock{}, Location: cfg.ClinicTimezone}
 	routes = append(routes, httpapi.AnalyticsRoutes(analytics)...)
 	router := httpapi.NewRouter(httpapi.Options{
-		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
+		Verifier: &httpapi.Verifier{Keys: keys, ReadPermission: cfg.ClinicalReadPermission, WritePermission: cfg.ClinicalWritePermission, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
 		Logger:   logger,
 		Ready:    store.Ping,
 		Routes:   append(routes, httpapi.TreatmentRoutes(treatments)...),
@@ -126,7 +126,20 @@ func run(logger *slog.Logger) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// loadPublicKey reads the identity service's public key from exactly one source.
+// signingKeys reads the Auth JWKS (rotation by kid) or, in dev, one configured key.
+func signingKeys(cfg config.Config) (httpapi.KeySet, error) {
+	if cfg.JWTJWKSURL != "" {
+		return &httpapi.JWKS{URL: cfg.JWTJWKSURL, Client: &http.Client{Timeout: cfg.InternalTimeout},
+			MinRefresh: cfg.JWKSMinRefresh, Now: time.Now}, nil
+	}
+	key, err := loadPublicKey(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return httpapi.StaticKey{Key: key}, nil
+}
+
+// loadPublicKey reads the one configured public key.
 func loadPublicKey(cfg config.Config) (*rsa.PublicKey, error) {
 	text := cfg.JWTPublicKey
 	if cfg.JWTPublicKeyFile != "" {
@@ -155,24 +168,22 @@ func owners(cfg config.Config) (ownerSet, error) {
 	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" && cfg.BillingURL == "" {
 		return set, nil
 	}
-	token, err := authority.ServiceToken(cfg.ServiceToken, cfg.ServiceTokenFile)
-	if err != nil {
-		return ownerSet{}, err
+	client := func(base, ownFile string) *authority.Client {
+		return authority.NewClient(base, authority.CredentialFor(ownFile, cfg.ServiceTokenFile, cfg.ServiceToken), cfg.InternalTimeout)
 	}
-	client := func(base string) *authority.Client { return authority.NewClient(base, token, cfg.InternalTimeout) }
 	if cfg.AppointmentsURL != "" {
-		apts := authority.Appointments{Client: client(cfg.AppointmentsURL)}
+		apts := authority.Appointments{Client: client(cfg.AppointmentsURL, cfg.AppointmentsTokenFile)}
 		set.care, set.appointments = apts, apts
 		set.gate = authority.PatientGates{Client: apts.Client}
 	}
 	if cfg.PatientsURL != "" {
-		set.patients = authority.Patients{Client: client(cfg.PatientsURL)}
+		set.patients = authority.Patients{Client: client(cfg.PatientsURL, cfg.PatientsTokenFile)}
 	}
 	if cfg.BillingURL != "" {
-		set.billing = authority.Billing{Client: client(cfg.BillingURL)}
+		set.billing = authority.Billing{Client: client(cfg.BillingURL, cfg.BillingTokenFile)}
 	}
 	if cfg.AuthURL != "" {
-		set.sessions = authority.Sessions{Client: client(cfg.AuthURL)}
+		set.sessions = authority.Sessions{Client: client(cfg.AuthURL, cfg.AuthTokenFile)}
 	}
 	return set, nil
 }

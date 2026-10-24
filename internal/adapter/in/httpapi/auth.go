@@ -25,6 +25,10 @@ type Principal struct {
 	SessionID   string   `json:"sessionId,omitempty"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
+	// Clinical grants resolved from Permissions with the configured names; the
+	// Administrator needs them besides the role (PAT-003).
+	ClinicalRead  bool `json:"clinicalRead"`
+	ClinicalWrite bool `json:"clinicalWrite"`
 }
 
 func (p Principal) HasRole(role string) bool       { return slices.Contains(p.Roles, role) }
@@ -39,10 +43,14 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 // Verifier validates RS256 JWTs by itself (Norma 5.3.7): closed algorithm
 // list, public key only, mandatory exp/sub, issuer and audience allowlists.
 type Verifier struct {
-	Key      *rsa.PublicKey
+	Keys     KeySet
 	Issuer   string
 	Audience string
 	Now      func() time.Time
+	// ReadPermission and WritePermission name the claims that grant clinical
+	// access, pending the Auth permission catalogue; empty grants nothing.
+	ReadPermission  string
+	WritePermission string
 	// Sessions, when set, asks auth whether the session is still active after
 	// the local checks pass; nil keeps local verification only (dev).
 	Sessions SessionValidator
@@ -59,21 +67,30 @@ type claims struct {
 	Sub         string          `json:"sub"`
 	Iss         string          `json:"iss"`
 	Aud         json.RawMessage `json:"aud"`
+	Iat         *int64          `json:"iat"`
 	Exp         *int64          `json:"exp"`
 	Nbf         *int64          `json:"nbf"`
+	Jti         string          `json:"jti"`
 	Sid         string          `json:"sid"`
 	Roles       []string        `json:"roles"`
 	Permissions []string        `json:"permissions"`
 }
 
-// Verify returns the principal of a valid token or errInvalidToken.
+// Verify returns the principal of a valid token, errInvalidToken, or an
+// out.ErrUnavailable error when the signing keys cannot be read.
 func (v *Verifier) Verify(token string) (Principal, error) {
+	return v.VerifyContext(context.Background(), token)
+}
+
+// VerifyContext is Verify bounded by ctx for the key lookup.
+func (v *Verifier) VerifyContext(ctx context.Context, token string) (Principal, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return Principal{}, errInvalidToken
 	}
 	var header struct {
 		Alg string `json:"alg"`
+		Kid string `json:"kid"`
 	}
 	if !decodeSegment(parts[0], &header) || header.Alg != "RS256" {
 		return Principal{}, errInvalidToken
@@ -82,8 +99,12 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	if err != nil {
 		return Principal{}, errInvalidToken
 	}
+	key, err := v.Keys.PublicKey(ctx, header.Kid)
+	if err != nil {
+		return Principal{}, err
+	}
 	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	if rsa.VerifyPKCS1v15(v.Key, crypto.SHA256, sum[:], sig) != nil {
+	if rsa.VerifyPKCS1v15(key, crypto.SHA256, sum[:], sig) != nil {
 		return Principal{}, errInvalidToken
 	}
 	var c claims
@@ -95,8 +116,12 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	case c.Exp == nil || now.After(time.Unix(*c.Exp, 0).Add(clockSkew)):
 	case c.Nbf != nil && now.Add(clockSkew).Before(time.Unix(*c.Nbf, 0)):
 	case !isUUID(c.Sub), c.Iss != v.Issuer, !audienceMatches(c.Aud, v.Audience):
+	// authentication.md lists iat, jti, sid, roles and permissions as required claims.
+	case c.Iat == nil, c.Jti == "", c.Sid == "", c.Roles == nil, c.Permissions == nil:
 	default:
-		return Principal{Subject: c.Sub, SessionID: c.Sid, Roles: c.Roles, Permissions: c.Permissions}, nil
+		return Principal{Subject: c.Sub, SessionID: c.Sid, Roles: c.Roles, Permissions: c.Permissions,
+			ClinicalRead:  v.ReadPermission != "" && slices.Contains(c.Permissions, v.ReadPermission),
+			ClinicalWrite: v.WritePermission != "" && slices.Contains(c.Permissions, v.WritePermission)}, nil
 	}
 	return Principal{}, errInvalidToken
 }
@@ -126,9 +151,13 @@ func withAuthentication(v *Verifier, public map[string]bool, next http.Handler) 
 			WriteError(w, r, unauthorized())
 			return
 		}
-		p, err := v.Verify(token)
-		if err != nil {
+		p, err := v.VerifyContext(r.Context(), token)
+		switch {
+		case errors.Is(err, errInvalidToken):
 			WriteError(w, r, unauthorized())
+			return
+		case err != nil: // signing keys unreachable: fail closed as 503, not as a bad token
+			WriteError(w, r, err)
 			return
 		}
 		if v.Sessions != nil {
