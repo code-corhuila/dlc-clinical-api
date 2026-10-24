@@ -32,10 +32,6 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	token, err := authority.ServiceToken(cfg.ServiceToken, cfg.ServiceTokenFile)
-	if err != nil {
-		return err
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -49,8 +45,8 @@ func run(logger *slog.Logger) error {
 
 	reconciler := &usecase.ReconcileService{
 		Intents: store, Admissions: store,
-		Gate:    authority.PatientGates{Client: authority.NewClient(cfg.AppointmentsURL, token, cfg.InternalTimeout)},
-		Billing: authority.Billing{Client: authority.NewClient(cfg.BillingURL, token, cfg.InternalTimeout)},
+		Gate:    authority.PatientGates{Client: authority.NewClient(cfg.AppointmentsURL, authority.CredentialFor(cfg.AppointmentsTokenFile, cfg.ServiceTokenFile, cfg.ServiceToken), cfg.InternalTimeout)},
+		Billing: authority.Billing{Client: authority.NewClient(cfg.BillingURL, authority.CredentialFor(cfg.BillingTokenFile, cfg.ServiceTokenFile, cfg.ServiceToken), cfg.InternalTimeout)},
 		Clock:   system.Clock{}, MinAge: cfg.MinAge, BatchSize: cfg.BatchSize,
 	}
 	logger.Info("clinical-intent-reconciler started", "interval", cfg.Interval.String(), "minAge", cfg.MinAge.String(), "batchSize", cfg.BatchSize)
