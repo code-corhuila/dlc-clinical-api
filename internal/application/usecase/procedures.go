@@ -55,6 +55,11 @@ func (s *ProcedureService) Complete(ctx context.Context, cmd in.CompleteProcedur
 	if t.Status != model.StatusInProgress {
 		return in.ProcedureCompletionResult{}, careStateConflict()
 	}
+	// The contract exposes no procedure version: expectedVersion is the version
+	// of the Treatment the client read; the procedure keeps its own lock below.
+	if cmd.ExpectedVersion != t.Version {
+		return in.ProcedureCompletionResult{}, staleVersion()
+	}
 	extras, err := validExtras(append(append([]model.ExtraInput{}, cmd.MaterialsUsed...), cmd.AdditionalRequirements...))
 	if err != nil {
 		return in.ProcedureCompletionResult{}, err
@@ -65,7 +70,7 @@ func (s *ProcedureService) Complete(ctx context.Context, cmd in.CompleteProcedur
 
 	now := s.Clock.Now()
 	from := p.Version
-	if err := p.Complete(cmd.ExpectedVersion, cmd.Actor.ID, now); err != nil {
+	if err := p.Complete(p.Version, cmd.Actor.ID, now); err != nil {
 		return in.ProcedureCompletionResult{}, err
 	}
 	recorded := make([]out.RecordedExtra, len(extras))
@@ -95,7 +100,7 @@ func (s *ProcedureService) Complete(ctx context.Context, cmd in.CompleteProcedur
 		}})
 	switch {
 	case errors.Is(err, out.ErrVersionConflict):
-		return in.ProcedureCompletionResult{}, &model.Error{Kind: model.KindStaleVersion, Code: "STALE_VERSION", Message: "the resource has changed; reload it before submitting a new operation"}
+		return in.ProcedureCompletionResult{}, staleVersion()
 	case errors.Is(err, out.ErrDuplicateSource):
 		return in.ProcedureCompletionResult{}, &model.Error{Kind: model.KindConflict, Code: "SOURCE_ALREADY_RECORDED", Message: "a sourceRecordId of this request was already recorded"}
 	case errors.Is(err, out.ErrDuplicateIdempotency):
@@ -167,4 +172,8 @@ func (s *ProcedureService) replay(ctx context.Context, cmd in.CompleteProcedureC
 		return in.ProcedureCompletionResult{}, true, err
 	}
 	return in.ProcedureCompletionResult{Procedure: p, Replayed: true}, true, nil
+}
+
+func staleVersion() error {
+	return &model.Error{Kind: model.KindStaleVersion, Code: "STALE_VERSION", Message: "the resource has changed; reload it before submitting a new operation"}
 }
