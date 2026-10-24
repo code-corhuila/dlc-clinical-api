@@ -121,7 +121,7 @@ const maxDeclaredProcedures = 100
 // and ClinicalCareCompleted in one majority transaction.
 func (m *Mongo) DeclareCareCompletion(ctx context.Context, c model.CareClosure, recordFromVersion int, idem out.IdempotencyRecord, events []out.OutboxEvent) error {
 	return m.transact(ctx, func(tx context.Context) error {
-		if err := m.insertIdempotency(tx, idem); err != nil {
+		if err := m.recordWrite(tx, idem); err != nil {
 			return err
 		}
 		if _, err := m.db.Collection("care_closures").InsertOne(tx, toClosureDoc(c)); err != nil {
