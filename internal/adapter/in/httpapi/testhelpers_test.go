@@ -78,7 +78,7 @@ func validToken(t *testing.T) string {
 
 func testVerifier() *Verifier {
 	return &Verifier{
-		Key:      &testKey.PublicKey,
+		Keys:     StaticKey{Key: &testKey.PublicKey},
 		Issuer:   testIssuer,
 		Audience: testAudience,
 		Now:      func() time.Time { return testNow },

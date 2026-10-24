@@ -23,6 +23,8 @@ type Config struct {
 	JWTAudience       string
 	JWTPublicKey      string // PEM, also accepted on one line with literal "\n"
 	JWTPublicKeyFile  string
+	JWTJWKSURL        string        // Auth /api/v1/auth/jwks; required outside dev (key rotation)
+	JWKSMinRefresh    time.Duration // least time between JWKS refreshes for an unknown kid
 	MongoURI          string
 	MongoDatabase     string
 	MongoMaxPoolSize  int           // connection pool size
@@ -102,6 +104,9 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	}
 	cfg.ClinicTimezone = loc
 	if cfg.AppEnv != "dev" {
+		if cfg.JWTJWKSURL == "" {
+			return Config{}, fmt.Errorf("JWT_JWKS_URL is required in %s: Auth rotates its signing keys by kid", cfg.AppEnv)
+		}
 		if cfg.AuthURL == "" {
 			return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
 		}
@@ -117,20 +122,34 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	return cfg, nil
 }
 
-// loadIdentity requires the issuer, audience and exactly one public key source.
-// The service never holds a private or shared key.
+// loadIdentity requires the issuer, audience and exactly one public key source:
+// the Auth JWKS, or one configured key. The service never holds a private key.
 func loadIdentity(lookup func(string) (string, bool), cfg *Config) error {
 	cfg.JWTIssuer, _ = lookup("JWT_ISSUER")
 	cfg.JWTAudience, _ = lookup("JWT_AUDIENCE")
 	cfg.JWTPublicKey, _ = lookup("JWT_PUBLIC_KEY")
 	cfg.JWTPublicKeyFile, _ = lookup("JWT_PUBLIC_KEY_FILE")
+	cfg.JWTJWKSURL, _ = lookup("JWT_JWKS_URL")
+	sources := 0
+	for _, v := range []string{cfg.JWTPublicKey, cfg.JWTPublicKeyFile, cfg.JWTJWKSURL} {
+		if v != "" {
+			sources++
+		}
+	}
 	switch {
 	case cfg.JWTIssuer == "":
 		return fmt.Errorf("JWT_ISSUER is required")
 	case cfg.JWTAudience == "":
 		return fmt.Errorf("JWT_AUDIENCE is required")
-	case (cfg.JWTPublicKey == "") == (cfg.JWTPublicKeyFile == ""):
-		return fmt.Errorf("set exactly one of JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE")
+	case sources != 1:
+		return fmt.Errorf("set exactly one of JWT_JWKS_URL, JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE")
+	}
+	refresh, err := positiveDuration(lookup, "JWKS_MIN_REFRESH", 30*time.Second)
+	if err != nil {
+		return err
+	}
+	if cfg.JWTJWKSURL != "" {
+		cfg.JWKSMinRefresh = refresh
 	}
 	return nil
 }
