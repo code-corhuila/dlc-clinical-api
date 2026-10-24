@@ -46,11 +46,39 @@ go run ./cmd/clinical-api
 curl http://localhost:8080/health   # {"status":"UP"}, no token required
 ```
 
-Container, attached to the external `platform` network provided by the infrastructure:
+## Deploy
+
+One image, five processes (`deploy/compose.yml`): `clinical-api`, `clinical-outbox-relay`,
+`clinical-inbox-consumer`, `clinical-intent-reconciler` and `clinical-analytics-consumer`. In order:
+
+1. `dlc-infra-mongo`: replica set, authentication and the `clinical-data` network.
+2. `dlc-clinical-db`: migrations (they create the runtime roles and `schema_info`).
+3. `dlc-infra-mongo`: the `clinical_runtime` identity, which needs the roles from step 2.
+4. This repository, with `.env` from `.env.example` and the secret files in `CLINICAL_SECRETS_DIR`
+   (mounted read-only at `/run/secrets/clinical`):
 
 ```bash
-docker compose -f deploy/compose.yml up --build
+CLINICAL_SECRETS_DIR=/srv/clinical/secrets docker compose -f deploy/compose.yml up --build -d
 ```
+
+Every process restarts until its dependencies are ready: it refuses a database below
+`RequiredSchemaVersion` and, in `qa`/`main`, a configuration without every owner. `clinical-api`
+reports readiness through `clinical-api healthcheck` (`GET /health/ready`, MongoDB reachable).
+RabbitMQ is reached through `RABBITMQ_URL` on the `platform` network.
+
+### Integration checklist
+
+What Clinical needs from each owner to run in `qa`/`main`; everything else is already in place.
+
+| Owner | Provides | Clinical setting |
+|---|---|---|
+| Auth (`auth-service`) | Public JWKS at `/api/v1/auth/jwks`; access tokens with `iat`, `jti`, `sid`, `roles`, `permissions`; `POST /internal/v1/sessions/validations`; the permission names that grant an Administrator clinical access | `JWT_JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE`, `AUTH_INTERNAL_URL`, `AUTH_SERVICE_TOKEN_FILE`, `CLINICAL_READ_PERMISSION`, `CLINICAL_WRITE_PERMISSION` |
+| Patients | `/internal/v1/patients/{id}/validation` | `PATIENTS_INTERNAL_URL`, `PATIENTS_SERVICE_TOKEN_FILE` |
+| Appointments | Assignments, assigned-patient list, encounter status and the patient gate of `internal-coordination.yaml`; `Appointment*` events | `APPOINTMENTS_INTERNAL_URL`, `APPOINTMENTS_SERVICE_TOKEN_FILE` |
+| Billing | Manual-charge freeze and release; `EncounterChargesCompleted` and `PaymentRecorded` events | `BILLING_INTERNAL_URL`, `BILLING_SERVICE_TOKEN_FILE` |
+| Service identity | One short-lived service JWT per owner audience, written to its file (read on every call) | `*_SERVICE_TOKEN_FILE` |
+| Gateway | Routes `/api/v1/clinical-records`, `/clinical-entries`, `/treatments`, `/procedures`, `/care-closures` and `/clinical-analytics` to `clinical-api:8080`, keeping the `/api/v1` prefix | — |
+| RabbitMQ | A broker and credentials; Clinical declares `clinical.events`, the exchanges it reads and its own queues idempotently | `RABBITMQ_URL` |
 
 ## Layout (Anexo C, Go)
 
