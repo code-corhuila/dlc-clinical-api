@@ -114,7 +114,7 @@ func TestRecordEntryRetryAndListing(t *testing.T) {
 		Meta struct{ Page, Limit, Total, TotalPages int }
 	}
 	_ = json.Unmarshal(list.Body.Bytes(), &page)
-	if list.Code != 200 || page.Meta.Total != 2 || page.Meta.TotalPages != 2 || len(page.Data) != 1 || page.Data[0]["kind"] != "ALLERGY" {
+	if list.Code != 200 || page.Meta.Total != 2 || page.Meta.TotalPages != 2 || len(page.Data) != 1 || page.Data[0]["kind"] != "EVOLUTION" {
 		t.Fatalf("list = %d %s", list.Code, list.Body.String())
 	}
 	for p, want := range map[string]int{path + "?limit=101": 400, path + "?patientId=" + patientA: 400, "/api/v1/clinical-records/" + patientB + "/entries": 404} {

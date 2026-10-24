@@ -72,7 +72,7 @@ func (r *fakeRepo) ListRecords(_ context.Context, f out.RecordFilter) ([]model.C
 			all = append(all, rec)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.After(all[j].CreatedAt) })
+	sort.Slice(all, func(i, j int) bool { return all[i].CreatedAt.Before(all[j].CreatedAt) })
 	total := len(all)
 	if f.Offset >= total {
 		return nil, total, nil
@@ -261,8 +261,8 @@ func TestListScopesDentistToAssignedPatientsBeforeCounting(t *testing.T) {
 	if page.Total != 2 || len(page.Items) != 2 || page.Limit != 20 || page.Page != 1 {
 		t.Fatalf("page = %+v", page)
 	}
-	if !page.Items[0].CreatedAt.After(page.Items[1].CreatedAt) {
-		t.Fatal("newest first")
+	if !page.Items[0].CreatedAt.Before(page.Items[1].CreatedAt) {
+		t.Fatal("oldest first (createdAt ascending)")
 	}
 	foreign, _ := f.svc.List(context.Background(), in.ListRecordsQuery{Actor: dentist, PatientID: "pat-3"})
 	if foreign.Total != 0 || len(foreign.Items) != 0 {

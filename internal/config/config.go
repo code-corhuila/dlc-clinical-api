@@ -27,6 +27,12 @@ type Config struct {
 	MongoDatabase     string
 	MongoMaxPoolSize  int           // connection pool size
 	MongoTimeout      time.Duration // connect, pool wait and per-operation deadline
+	AuthURL           string        // auth-service /internal/v1 base; required outside dev
+	PatientsURL       string        // patients-service /internal/v1 base; empty fails closed
+	AppointmentsURL   string        // appointments-service /internal/v1 base; empty fails closed
+	ServiceToken      string        // service credential issued by identity, never versioned
+	ServiceTokenFile  string
+	InternalTimeout   time.Duration // bound of each owner call
 }
 
 var environments = map[string]bool{"dev": true, "qa": true, "main": true}
@@ -85,6 +91,9 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if err := loadMongo(lookup, &cfg); err != nil {
 		return Config{}, err
 	}
+	if err := loadOwners(lookup, &cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -133,6 +142,28 @@ func loadMongo(lookup func(string) (string, bool), cfg *Config) error {
 			return fmt.Errorf("MONGO_TIMEOUT must be a positive duration")
 		}
 		cfg.MongoTimeout = d
+	}
+	return nil
+}
+
+// loadOwners reads the optional private owner contracts. When any owner is
+// configured, exactly one service-credential source is required.
+func loadOwners(lookup func(string) (string, bool), cfg *Config) error {
+	cfg.AuthURL, _ = lookup("AUTH_INTERNAL_URL")
+	cfg.PatientsURL, _ = lookup("PATIENTS_INTERNAL_URL")
+	cfg.AppointmentsURL, _ = lookup("APPOINTMENTS_INTERNAL_URL")
+	cfg.ServiceToken, _ = lookup("SERVICE_TOKEN")
+	cfg.ServiceTokenFile, _ = lookup("SERVICE_TOKEN_FILE")
+	timeout, err := positiveDuration(lookup, "INTERNAL_TIMEOUT", 3*time.Second)
+	if err != nil {
+		return err
+	}
+	cfg.InternalTimeout = timeout
+	if cfg.AuthURL == "" && cfg.AppEnv != "dev" {
+		return fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
+	}
+	if (cfg.AuthURL != "" || cfg.PatientsURL != "" || cfg.AppointmentsURL != "") && (cfg.ServiceToken == "") == (cfg.ServiceTokenFile == "") {
+		return fmt.Errorf("set exactly one of SERVICE_TOKEN or SERVICE_TOKEN_FILE when an internal owner URL is configured")
 	}
 	return nil
 }

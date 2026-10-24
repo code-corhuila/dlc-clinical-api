@@ -123,7 +123,7 @@ func TestListAndReadTreatments(t *testing.T) {
 		Meta struct{ Page, Limit, Total, TotalPages int }
 	}
 	_ = json.Unmarshal(list.Body.Bytes(), &page)
-	if list.Code != 200 || page.Meta.Total != 2 || page.Meta.TotalPages != 2 || page.Data[0]["clinicalReason"] != "Control" {
+	if list.Code != 200 || page.Meta.Total != 2 || page.Meta.TotalPages != 2 || page.Data[0]["id"] != first["id"] {
 		t.Fatalf("list = %d %s", list.Code, list.Body.String())
 	}
 	if rec := do(e.h, http.MethodGet, "/api/v1/treatments/"+first["id"].(string), validToken(t), nil, nil); rec.Code != 200 {

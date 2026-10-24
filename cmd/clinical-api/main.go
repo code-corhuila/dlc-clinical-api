@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/out/authority"
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/out/persistence"
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/out/system"
+	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/usecase"
 	"github.com/code-corhuila/dlc-clinical-api/internal/config"
 )
@@ -48,34 +50,38 @@ func run(logger *slog.Logger) error {
 	}
 	defer store.Close(context.Background())
 
-	// Appointments and Patients are not deployed yet: their authority fails closed.
+	care, patients, sessions, err := owners(cfg)
+	if err != nil {
+		return err
+	}
+	// Owners without a configured contract, and operations without one, fail closed.
 	records := &usecase.RecordService{
-		Repo: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Repo: store, Care: care, Patients: patients,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	entries := &usecase.EntryService{
-		Records: store, Entries: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	treatments := &usecase.TreatmentService{
-		Records: store, Entries: store, Treatments: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	procedures := &usecase.ProcedureService{
-		Procedures: store, Treatments: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients,
 		Appointments: authority.Unavailable{}, Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes := append(httpapi.RecordRoutes(records), httpapi.EntryRoutes(entries)...)
 	routes = append(routes, httpapi.ProcedureRoutes(procedures)...)
 	// The cross-owner write gate and Billing are release gates: declarations fail closed (503).
 	careCompletions := &usecase.CareCompletionService{
-		Records: store, Entries: store, Closures: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
 		Appointments: authority.Unavailable{}, Billing: authority.Unavailable{}, Gate: authority.Unavailable{},
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes = append(routes, httpapi.CareCompletionRoutes(careCompletions)...)
 	router := httpapi.NewRouter(httpapi.Options{
-		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now},
+		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: sessions},
 		Logger:   logger,
 		Ready:    store.Ping,
 		Routes:   append(routes, httpapi.TreatmentRoutes(treatments)...),
@@ -127,4 +133,36 @@ func loadPublicKey(cfg config.Config) (*rsa.PublicKey, error) {
 		text = string(raw)
 	}
 	return httpapi.ParseRSAPublicKey(text)
+}
+
+// owners wires the private owner contracts that are configured; any owner
+// without a URL keeps failing closed through authority.Unavailable.
+func owners(cfg config.Config) (out.CareAuthority, out.PatientDirectory, httpapi.SessionValidator, error) {
+	var care out.CareAuthority = authority.Unavailable{}
+	var patients out.PatientDirectory = authority.Unavailable{}
+	var sessions httpapi.SessionValidator
+	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" {
+		return care, patients, sessions, nil
+	}
+	token := cfg.ServiceToken
+	if cfg.ServiceTokenFile != "" {
+		raw, err := os.ReadFile(cfg.ServiceTokenFile)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
+		}
+		token = strings.TrimSpace(string(raw))
+	}
+	client := func(base string) *authority.Client {
+		return &authority.Client{BaseURL: strings.TrimRight(base, "/"), Token: token, HTTP: &http.Client{Timeout: cfg.InternalTimeout}}
+	}
+	if cfg.AppointmentsURL != "" {
+		care = authority.Appointments{Client: client(cfg.AppointmentsURL)}
+	}
+	if cfg.PatientsURL != "" {
+		patients = authority.Patients{Client: client(cfg.PatientsURL)}
+	}
+	if cfg.AuthURL != "" {
+		sessions = authority.Sessions{Client: client(cfg.AuthURL)}
+	}
+	return care, patients, sessions, nil
 }

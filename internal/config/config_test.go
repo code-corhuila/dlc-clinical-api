@@ -40,6 +40,7 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 		MongoDatabase:     "clinical",
 		MongoMaxPoolSize:  10,
 		MongoTimeout:      5 * time.Second,
+		InternalTimeout:   3 * time.Second,
 	}
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)
@@ -48,10 +49,12 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 
 func TestLoadReadsOverrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"HTTP_ADDR":        ":9090",
-		"APP_ENV":          "qa",
-		"SHUTDOWN_TIMEOUT": "30s",
-		"WRITE_TIMEOUT":    "20s",
+		"HTTP_ADDR":         ":9090",
+		"APP_ENV":           "qa",
+		"AUTH_INTERNAL_URL": "http://auth",
+		"SERVICE_TOKEN":     "svc",
+		"SHUTDOWN_TIMEOUT":  "30s",
+		"WRITE_TIMEOUT":     "20s",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -122,5 +125,41 @@ func TestLoadMongoSettings(t *testing.T) {
 		if _, err := Load(env(bad)); err == nil {
 			t.Fatalf("%v must be rejected", bad)
 		}
+	}
+}
+
+func TestLoadInternalOwners(t *testing.T) {
+	cfg, err := Load(env(nil))
+	if err != nil || cfg.PatientsURL != "" || cfg.AppointmentsURL != "" || cfg.InternalTimeout != 3*time.Second {
+		t.Fatalf("owners are optional and fail closed when absent: %+v %v", cfg, err)
+	}
+	cfg, err = Load(env(map[string]string{"PATIENTS_INTERNAL_URL": "http://patients:8080", "APPOINTMENTS_INTERNAL_URL": "http://appointments:8080",
+		"SERVICE_TOKEN": "svc", "INTERNAL_TIMEOUT": "2s"}))
+	if err != nil || cfg.PatientsURL != "http://patients:8080" || cfg.AppointmentsURL != "http://appointments:8080" || cfg.ServiceToken != "svc" || cfg.InternalTimeout != 2*time.Second {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
+	for name, bad := range map[string]map[string]string{
+		"owner without token": {"PATIENTS_INTERNAL_URL": "http://patients:8080"},
+		"two token sources":   {"PATIENTS_INTERNAL_URL": "http://p", "SERVICE_TOKEN": "a", "SERVICE_TOKEN_FILE": "/run/secrets/t"},
+		"no call bound":       {"PATIENTS_INTERNAL_URL": "http://p", "SERVICE_TOKEN": "a", "INTERNAL_TIMEOUT": "0s"},
+	} {
+		if _, err := Load(env(bad)); err == nil {
+			t.Fatalf("%s must be rejected", name)
+		}
+	}
+}
+
+func TestLoadAuthSessionValidation(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"AUTH_INTERNAL_URL": "http://auth:8080", "SERVICE_TOKEN": "svc"}))
+	if err != nil || cfg.AuthURL != "http://auth:8080" {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
+	for _, e := range []string{"qa", "main"} {
+		if _, err := Load(env(map[string]string{"APP_ENV": e})); err == nil {
+			t.Fatalf("%s must not run without revocation checks", e)
+		}
+	}
+	if _, err := Load(env(map[string]string{"AUTH_INTERNAL_URL": "http://auth"})); err == nil {
+		t.Fatal("auth URL needs a service token")
 	}
 }

@@ -84,7 +84,7 @@ func TestMongoTransactionRollsBackBothDocuments(t *testing.T) {
 	}
 }
 
-func TestMongoListNewestFirstWithFilterAndWindow(t *testing.T) {
+func TestMongoListOldestFirstWithFilterAndWindow(t *testing.T) {
 	m := newTestMongo(t)
 	base := time.Now().UTC().Truncate(time.Second)
 	hash := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -96,11 +96,11 @@ func TestMongoListNewestFirstWithFilterAndWindow(t *testing.T) {
 		}
 	}
 	items, total, err := m.ListRecords(ctx, out.RecordFilter{Limit: 2})
-	if err != nil || total != 3 || len(items) != 2 || items[0].PatientID != "p3" || items[1].PatientID != "p2" {
+	if err != nil || total != 3 || len(items) != 2 || items[0].PatientID != "p1" || items[1].PatientID != "p2" {
 		t.Fatalf("got %d %+v %v", total, items, err)
 	}
 	items, total, _ = m.ListRecords(ctx, out.RecordFilter{PatientIDs: []string{"p1", "p2"}, Offset: 1, Limit: 5})
-	if total != 2 || len(items) != 1 || items[0].PatientID != "p1" {
+	if total != 2 || len(items) != 1 || items[0].PatientID != "p2" {
 		t.Fatalf("got %d %+v", total, items)
 	}
 	items, total, _ = m.ListRecords(ctx, out.RecordFilter{PatientIDs: []string{}, Limit: 5})

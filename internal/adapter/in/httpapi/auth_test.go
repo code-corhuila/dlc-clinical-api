@@ -1,10 +1,15 @@
 package httpapi
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
 )
 
 var whoami = Route{
@@ -121,5 +126,40 @@ func TestParsePublicKeyAcceptsEscapedNewlines(t *testing.T) {
 	}
 	if _, err := ParseRSAPublicKey("not a key"); err == nil {
 		t.Fatal("invalid PEM must fail")
+	}
+}
+
+type fakeSessions struct {
+	active bool
+	err    error
+	got    string
+}
+
+func (f *fakeSessions) IsActive(_ context.Context, token string) (bool, error) {
+	f.got = token
+	return f.active, f.err
+}
+
+func sessionRouter(s SessionValidator) http.Handler {
+	v := testVerifier()
+	v.Sessions = s
+	return NewRouter(Options{Verifier: v, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Routes: []Route{whoami}})
+}
+
+func TestRevokedSessionIs401AndUnavailableAuthIs503(t *testing.T) {
+	token := validToken(t)
+	live := &fakeSessions{active: true}
+	if rec := do(sessionRouter(live), http.MethodGet, "/api/v1/whoami", token, nil, nil); rec.Code != http.StatusOK || live.got != token {
+		t.Fatalf("active: %d, auth got %q", rec.Code, live.got)
+	}
+	if rec := do(sessionRouter(&fakeSessions{}), http.MethodGet, "/api/v1/whoami", token, nil, nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked: %d", rec.Code)
+	}
+	if rec := do(sessionRouter(&fakeSessions{err: out.ErrUnavailable}), http.MethodGet, "/api/v1/whoami", token, nil, nil); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("auth down: %d", rec.Code)
+	}
+	bad := &fakeSessions{active: true}
+	if do(sessionRouter(bad), http.MethodGet, "/api/v1/whoami", "x.y.z", nil, nil); bad.got != "" {
+		t.Fatal("a locally invalid token is never sent to auth")
 	}
 }

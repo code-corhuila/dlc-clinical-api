@@ -56,7 +56,7 @@ func (m *Memory) GetTreatment(_ context.Context, id string) (model.Treatment, er
 	return cloneTreatment(t), nil
 }
 
-// ListTreatments returns newest first (ties by id) within the window.
+// ListTreatments returns oldest first (ties by id) within the window.
 func (m *Memory) ListTreatments(_ context.Context, f out.RecordFilter) ([]model.Treatment, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -68,9 +68,9 @@ func (m *Memory) ListTreatments(_ context.Context, f out.RecordFilter) ([]model.
 	}
 	sort.Slice(matched, func(i, j int) bool {
 		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
-			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+			return matched[i].CreatedAt.Before(matched[j].CreatedAt)
 		}
-		return matched[i].ID > matched[j].ID
+		return matched[i].ID < matched[j].ID
 	})
 	if f.Offset >= len(matched) {
 		return []model.Treatment{}, len(matched), nil
