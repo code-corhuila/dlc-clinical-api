@@ -46,3 +46,17 @@ type AnalyticsProjections interface {
 	// is ErrDuplicateEvent and changes nothing.
 	Project(ctx context.Context, p Projection) error
 }
+
+// AnalyticsReader answers the dashboard from the projections. dentistID ""
+// means the whole clinic.
+type AnalyticsReader interface {
+	// CountAppointments counts live appointments starting in [from, to).
+	CountAppointments(ctx context.Context, from, to time.Time, dentistID string) (int, error)
+	// ActivityBetween returns declared encounters per day, fromDay..toDay inclusive.
+	ActivityBetween(ctx context.Context, fromDay, toDay, dentistID string) (map[string]int, error)
+	// CollectedRevenue returns the collected cents of a month, if any were recorded.
+	CollectedRevenue(ctx context.Context, month string) (int64, bool, error)
+	// LatestEvent is the newest processed source event time, or false when no
+	// projection has been built yet.
+	LatestEvent(ctx context.Context) (time.Time, bool, error)
+}
