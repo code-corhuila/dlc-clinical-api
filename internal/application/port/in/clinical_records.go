@@ -10,9 +10,11 @@ import (
 
 // Actor is the authenticated staff member, as verified by the inbound adapter.
 type Actor struct {
-	ID          string
-	Roles       []string
-	Permissions []string
+	ID    string
+	Roles []string
+	// Clinical grants already resolved from the token by the adapter.
+	ClinicalRead  bool
+	ClinicalWrite bool
 }
 
 // PageRequest asks for one bounded page; zero values take the defaults.

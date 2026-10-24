@@ -169,3 +169,21 @@ func TestRevokedSessionIs401AndUnavailableAuthIs503(t *testing.T) {
 		t.Fatal("a locally invalid token is never sent to auth")
 	}
 }
+
+// The Auth permission catalogue is not published yet: the claim names that
+// grant clinical access are configuration, resolved here into booleans.
+func TestVerifierResolvesTheConfiguredClinicalPermissions(t *testing.T) {
+	v := testVerifier()
+	v.ReadPermission, v.WritePermission = "clinical.history.read", "clinical.history.write"
+	c := validClaims()
+	c["permissions"] = []string{"clinical.history.read"}
+	p, err := v.Verify(signToken(t, map[string]any{"alg": "RS256"}, c, testKey))
+	if err != nil || !p.ClinicalRead || p.ClinicalWrite {
+		t.Fatalf("principal = %+v %v", p, err)
+	}
+	c["permissions"] = []string{"clinical:read", "clinical:write"} // other names grant nothing
+	p, _ = v.Verify(signToken(t, map[string]any{"alg": "RS256"}, c, testKey))
+	if p.ClinicalRead || p.ClinicalWrite {
+		t.Fatalf("unconfigured names must not grant access: %+v", p)
+	}
+}
