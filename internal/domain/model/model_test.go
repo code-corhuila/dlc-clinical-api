@@ -198,3 +198,20 @@ func TestStartTreatmentTransitions(t *testing.T) {
 		t.Fatal("stale version must be rejected before the transition")
 	}
 }
+
+func TestOpenRecordAndAmendmentNeedAnAuthor(t *testing.T) {
+	if _, err := OpenRecord("rec-1", "pat-1", "", now); kindOf(t, err) != KindInvalidInput {
+		t.Fatal("the author of a record always comes from the server")
+	}
+	orig := consultation(t)
+	long := strings.Repeat("x", 10001)
+	for name, a := range map[string]Amendment{
+		"no author":     {ID: "c-2", Text: "x", Reason: "r", ExpectedVersion: 1, At: now},
+		"text too long": {ID: "c-2", Text: long, Reason: "r", ExpectedVersion: 1, AuthorID: author, At: now},
+	} {
+		_, err := orig.Amend(a)
+		if kindOf(t, err) != KindInvalidInput || err.Error() == "" {
+			t.Fatalf("%s: got %v", name, err)
+		}
+	}
+}
