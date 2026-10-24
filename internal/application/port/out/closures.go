@@ -26,19 +26,6 @@ type ClosureRepository interface {
 	RetryClosure(ctx context.Context, c model.CareClosure, fromVersion int, idem IdempotencyRecord) error
 }
 
-// BillingAuthority lists, from Billing, the manual charges of an encounter;
-// Clinical never reads Billing's data directly.
-type BillingAuthority interface {
-	EncounterManualCharges(ctx context.Context, recordID, consultationID, appointmentID string) ([]string, error)
-}
-
-// EncounterGate stops admitting new Clinical and Billing writes to an encounter
-// and confirms in-flight ones are settled. The cross-owner protocol is still a
-// release gate (care-completion.md), so the only adapter today fails closed.
-type EncounterGate interface {
-	Quiesce(ctx context.Context, recordID, consultationID, appointmentID string) error
-}
-
 // EncounterClosures finds the declared closures of an appointment; once one
 // exists the encounter is clinically closed for new writes (APT-012).
 type EncounterClosures interface {

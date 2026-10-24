@@ -16,8 +16,8 @@ import (
 
 type stubAppointments struct{ err error }
 
-func (s stubAppointments) InAttention(context.Context, string, string) (bool, error) {
-	return s.err == nil, s.err
+func (s stubAppointments) EncounterStatus(_ context.Context, id string) (out.EncounterStatus, error) {
+	return out.EncounterStatus{AppointmentID: id, PatientID: patientA, DentistID: testSubject, Status: out.AppointmentInAttention, Version: 1}, s.err
 }
 
 type proceduresEnv struct {
