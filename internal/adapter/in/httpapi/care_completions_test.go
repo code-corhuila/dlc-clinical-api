@@ -128,3 +128,28 @@ func TestDeclarationFailsClosedUntilTheWriteGateExists(t *testing.T) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestRetryClosureRoute(t *testing.T) {
+	e := newCareEnv(t, stubGate{})
+	_, decl := e.send(t, "/api/v1/clinical-records/"+e.record+"/care-completions", e.key(), e.declaration("1"))
+	path := "/api/v1/care-closures/" + decl["careClosureId"].(string) + "/retries"
+	if rec, _ := e.send(t, path, e.key(), `{"reason":"Precio corregido","expectedVersion":1}`); rec.Code != 409 || decodeEnvelope(t, rec).Error != "CARE_STATE_CONFLICT" {
+		t.Fatalf("an awaiting closure is never retried: %d %s", rec.Code, rec.Body.String())
+	}
+	for name, c := range map[string]struct{ path, body, field string }{
+		"no reason":  {path, `{"expectedVersion":1}`, "reason"},
+		"no version": {path, `{"reason":"r"}`, "expectedVersion"},
+		"bad id":     {"/api/v1/care-closures/x/retries", `{"reason":"r","expectedVersion":1}`, "id"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec, _ := e.send(t, c.path, e.key(), c.body)
+			env := decodeEnvelope(t, rec)
+			if rec.Code != 400 || env.Details[0].Field != c.field {
+				t.Fatalf("got %d %+v", rec.Code, env)
+			}
+		})
+	}
+	if rec, _ := e.send(t, "/api/v1/care-closures/"+patientB+"/retries", e.key(), `{"reason":"r","expectedVersion":1}`); rec.Code != 404 {
+		t.Fatalf("missing closure = %d", rec.Code)
+	}
+}
