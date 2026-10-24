@@ -85,7 +85,7 @@ func run(logger *slog.Logger) error {
 	analytics := &usecase.DashboardService{Analytics: store, Clock: system.Clock{}, Location: cfg.ClinicTimezone}
 	routes = append(routes, httpapi.AnalyticsRoutes(analytics)...)
 	router := httpapi.NewRouter(httpapi.Options{
-		Verifier: &httpapi.Verifier{Keys: keys, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
+		Verifier: &httpapi.Verifier{Keys: keys, ReadPermission: cfg.ClinicalReadPermission, WritePermission: cfg.ClinicalWritePermission, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
 		Logger:   logger,
 		Ready:    store.Ping,
 		Routes:   append(routes, httpapi.TreatmentRoutes(treatments)...),
