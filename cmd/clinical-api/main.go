@@ -31,7 +31,7 @@ func run(logger *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           http.MaxBytesHandler(httpapi.NewRouter(), cfg.MaxBodyBytes),
+		Handler:           http.MaxBytesHandler(httpapi.NewRouter(httpapi.Options{Logger: logger}), cfg.MaxBodyBytes),
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
