@@ -22,6 +22,7 @@ type TreatmentService struct {
 	Records    out.RecordRepository
 	Entries    out.EntryRepository
 	Treatments out.TreatmentRepository
+	Closures   out.EncounterClosures
 	Care       out.CareAuthority
 	Patients   out.PatientDirectory
 	Clock      out.Clock
@@ -46,6 +47,13 @@ func (s *TreatmentService) Plan(ctx context.Context, cmd in.PlanTreatmentCommand
 		return in.TreatmentResult{}, err
 	}
 	if err := s.requireActive(ctx, cmd.PatientID); err != nil {
+		return in.TreatmentResult{}, err
+	}
+	appointments := make([]string, 0, len(cmd.Procedures))
+	for _, p := range cmd.Procedures {
+		appointments = append(appointments, p.AppointmentID)
+	}
+	if err := ensureOpen(ctx, s.Closures, appointments...); err != nil {
 		return in.TreatmentResult{}, err
 	}
 	records, _, err := s.Records.ListRecords(ctx, out.RecordFilter{PatientIDs: []string{cmd.PatientID}, Limit: 1})

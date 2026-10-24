@@ -20,6 +20,7 @@ const (
 type EntryService struct {
 	Records  out.RecordRepository
 	Entries  out.EntryRepository
+	Closures out.EncounterClosures
 	Care     out.CareAuthority
 	Patients out.PatientDirectory
 	Clock    out.Clock
@@ -36,6 +37,9 @@ func (s *EntryService) Record(ctx context.Context, cmd in.RecordEntryCommand) (i
 	}
 	rec, err := s.writableRecord(ctx, cmd.Actor, cmd.RecordID)
 	if err != nil {
+		return in.EntryResult{}, err
+	}
+	if err := ensureOpen(ctx, s.Closures, cmd.AppointmentID); err != nil {
 		return in.EntryResult{}, err
 	}
 	now := s.Clock.Now()
@@ -78,6 +82,9 @@ func (s *EntryService) Amend(ctx context.Context, cmd in.AmendEntryCommand) (in.
 		return in.EntryResult{}, err
 	}
 	if _, err := s.writableRecord(ctx, cmd.Actor, orig.RecordID); err != nil {
+		return in.EntryResult{}, err
+	}
+	if err := ensureOpen(ctx, s.Closures, orig.AppointmentID); err != nil {
 		return in.EntryResult{}, err
 	}
 	fix, err := orig.Amend(model.Amendment{ID: s.IDs.NewID(), Text: cmd.Text, Reason: cmd.Reason, ExpectedVersion: cmd.ExpectedVersion, AuthorID: cmd.Actor.ID, At: s.Clock.Now()})
