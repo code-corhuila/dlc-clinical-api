@@ -20,6 +20,7 @@ var _ out.Publisher = (*Publisher)(nil)
 // type as routing key (events.md), waiting for the broker confirmation.
 type Publisher struct {
 	mu       sync.Mutex
+	url      string
 	conn     *amqp.Connection
 	ch       *amqp.Channel
 	returns  chan amqp.Return
@@ -30,26 +31,40 @@ type Publisher struct {
 // NewPublisher connects, declares the exchange idempotently and enables
 // publisher confirms; timeout bounds each publication.
 func NewPublisher(url, exchange string, timeout time.Duration) (*Publisher, error) {
-	conn, err := amqp.DialConfig(url, amqp.Config{Dial: amqp.DefaultDial(timeout)})
+	p := &Publisher{url: url, exchange: exchange, timeout: timeout}
+	if err := p.connect(); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// connect dials, opens a confirming channel and declares the exchange.
+func (p *Publisher) connect() error {
+	conn, err := amqp.DialConfig(p.url, amqp.Config{Dial: amqp.DefaultDial(p.timeout)})
 	if err != nil {
-		return nil, fmt.Errorf("broker dial: %w", err)
+		return fmt.Errorf("broker dial: %w", err)
 	}
 	ch, err := conn.Channel()
 	if err == nil {
-		err = ch.ExchangeDeclare(exchange, "topic", true, false, false, false, nil)
+		err = ch.ExchangeDeclare(p.exchange, "topic", true, false, false, false, nil)
 	}
 	if err == nil {
 		err = ch.Confirm(false)
 	}
 	if err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("broker channel: %w", err)
+		return fmt.Errorf("broker channel: %w", err)
 	}
-	return &Publisher{conn: conn, ch: ch, returns: ch.NotifyReturn(make(chan amqp.Return, 1)), exchange: exchange, timeout: timeout}, nil
+	p.conn, p.ch, p.returns = conn, ch, ch.NotifyReturn(make(chan amqp.Return, 1))
+	return nil
 }
 
 // Close releases the channel and the connection.
-func (p *Publisher) Close() error { return p.conn.Close() }
+func (p *Publisher) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.conn.Close()
+}
 
 // Publish sends a persistent, mandatory message and returns once the broker
 // confirms it. An unroutable message (usually a consumer not deployed yet), a
@@ -63,6 +78,14 @@ func (p *Publisher) Publish(ctx context.Context, e out.Envelope) error {
 	defer cancel()
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// A broker restart or missed heartbeats close the connection: reconnect
+	// instead of failing every event until the relay gives up on it.
+	if p.conn.IsClosed() || p.ch.IsClosed() {
+		_ = p.conn.Close()
+		if err := p.connect(); err != nil {
+			return fmt.Errorf("reconnect: %w", err)
+		}
+	}
 	confirm, err := p.ch.PublishWithDeferredConfirmWithContext(ctx, p.exchange, e.EventType, true, false, amqp.Publishing{
 		ContentType: "application/json", DeliveryMode: amqp.Persistent, MessageId: e.EventID, CorrelationId: e.Metadata.CorrelationID,
 		Type: e.EventType, AppId: e.Producer, Timestamp: time.Now().UTC(), Body: body,
