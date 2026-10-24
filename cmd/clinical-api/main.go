@@ -40,10 +40,17 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	// Appointments and Patients are not deployed yet: their authority fails
-	// closed. The memory repository is replaced by MongoDB in the next increment.
+	store, err := persistence.OpenMongo(context.Background(), persistence.MongoOptions{
+		URI: cfg.MongoURI, Database: cfg.MongoDatabase, MaxPoolSize: cfg.MongoMaxPoolSize, Timeout: cfg.MongoTimeout,
+	})
+	if err != nil {
+		return err
+	}
+	defer store.Close(context.Background())
+
+	// Appointments and Patients are not deployed yet: their authority fails closed.
 	records := &usecase.RecordService{
-		Repo: persistence.NewMemory(), Care: authority.Unavailable{}, Patients: authority.Unavailable{},
+		Repo: store, Care: authority.Unavailable{}, Patients: authority.Unavailable{},
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	router := httpapi.NewRouter(httpapi.Options{
