@@ -1,4 +1,4 @@
-# Clinical API, its outbox relay, its inbox consumer and its intent reconciler. The shared MongoDB instance belongs to dlc-infra-mongo and the
+# Clinical API, its outbox relay, its inbox consumer, its intent reconciler and its analytics consumer. The shared MongoDB instance belongs to dlc-infra-mongo and the
 # Clinical schema to dlc-clinical-db; this file never defines a database or volume.
 name: dlc-clinical-api
 services:
@@ -31,6 +31,14 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     entrypoint: ["/clinical-intent-reconciler"]
+    env_file: ../.env
+    networks: [platform, clinical-data]
+  # Keeps the HU-CLN-003 analytics projections on its own queue (clinical.analytics).
+  clinical-analytics-consumer:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    entrypoint: ["/clinical-analytics-consumer"]
     env_file: ../.env
     networks: [platform, clinical-data]
 networks:
