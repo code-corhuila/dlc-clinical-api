@@ -66,8 +66,14 @@ func TestRejectedTokens(t *testing.T) {
 		"wrong issuer":        signToken(t, rs, with(func(c map[string]any) { c["iss"] = "https://evil.test" }), testKey),
 		"wrong audience":      signToken(t, rs, with(func(c map[string]any) { c["aud"] = "billing-service" }), testKey),
 		"not yet valid":       signToken(t, rs, with(func(c map[string]any) { c["nbf"] = testNow.Add(time.Minute).Unix() }), testKey),
-		"two segments":        "abc.def",
-		"garbage":             "not-a-jwt",
+		// authentication.md: sub, iss, aud, iat, exp, jti, sid, roles and permissions are required.
+		"no iat":         signToken(t, rs, with(func(c map[string]any) { delete(c, "iat") }), testKey),
+		"no jti":         signToken(t, rs, with(func(c map[string]any) { delete(c, "jti") }), testKey),
+		"no sid":         signToken(t, rs, with(func(c map[string]any) { delete(c, "sid") }), testKey),
+		"no roles":       signToken(t, rs, with(func(c map[string]any) { delete(c, "roles") }), testKey),
+		"no permissions": signToken(t, rs, with(func(c map[string]any) { delete(c, "permissions") }), testKey),
+		"two segments":   "abc.def",
+		"garbage":        "not-a-jwt",
 	}
 	for name, token := range cases {
 		t.Run(name, func(t *testing.T) {

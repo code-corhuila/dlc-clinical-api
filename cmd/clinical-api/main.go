@@ -37,7 +37,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	key, err := loadPublicKey(cfg)
+	keys, err := signingKeys(cfg)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func run(logger *slog.Logger) error {
 	analytics := &usecase.DashboardService{Analytics: store, Clock: system.Clock{}, Location: cfg.ClinicTimezone}
 	routes = append(routes, httpapi.AnalyticsRoutes(analytics)...)
 	router := httpapi.NewRouter(httpapi.Options{
-		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
+		Verifier: &httpapi.Verifier{Keys: keys, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
 		Logger:   logger,
 		Ready:    store.Ping,
 		Routes:   append(routes, httpapi.TreatmentRoutes(treatments)...),
@@ -126,7 +126,20 @@ func run(logger *slog.Logger) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
-// loadPublicKey reads the identity service's public key from exactly one source.
+// signingKeys reads the Auth JWKS (rotation by kid) or, in dev, one configured key.
+func signingKeys(cfg config.Config) (httpapi.KeySet, error) {
+	if cfg.JWTJWKSURL != "" {
+		return &httpapi.JWKS{URL: cfg.JWTJWKSURL, Client: &http.Client{Timeout: cfg.InternalTimeout},
+			MinRefresh: cfg.JWKSMinRefresh, Now: time.Now}, nil
+	}
+	key, err := loadPublicKey(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return httpapi.StaticKey{Key: key}, nil
+}
+
+// loadPublicKey reads the one configured public key.
 func loadPublicKey(cfg config.Config) (*rsa.PublicKey, error) {
 	text := cfg.JWTPublicKey
 	if cfg.JWTPublicKeyFile != "" {

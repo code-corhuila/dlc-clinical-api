@@ -58,6 +58,8 @@ func TestLoadReadsOverrides(t *testing.T) {
 		"AUTH_INTERNAL_URL":     "http://auth",
 		"SERVICE_TOKEN":         "svc",
 		"SHUTDOWN_TIMEOUT":      "30s",
+		"JWT_PUBLIC_KEY":        "",
+		"JWT_JWKS_URL":          "http://auth/jwks",
 		"PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing",
 		"WRITE_TIMEOUT": "20s",
 	}))
@@ -118,6 +120,26 @@ func TestLoadRequiresExactlyOnePublicKeySource(t *testing.T) {
 	}
 }
 
+// Auth rotates keys with a kid (authentication.md): outside dev the service
+// reads the JWKS; a single configured key is a dev convenience.
+func TestLoadJWKSSource(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"JWT_PUBLIC_KEY": "", "JWT_JWKS_URL": "http://auth:8080/api/v1/auth/jwks"}))
+	if err != nil || cfg.JWTJWKSURL != "http://auth:8080/api/v1/auth/jwks" || cfg.JWKSMinRefresh != 30*time.Second {
+		t.Fatalf("got %+v %v", cfg, err)
+	}
+	if _, err := Load(env(map[string]string{"JWT_JWKS_URL": "http://auth/jwks"})); err == nil {
+		t.Fatal("JWT_JWKS_URL and JWT_PUBLIC_KEY are mutually exclusive")
+	}
+	qa := map[string]string{"APP_ENV": "qa", "SERVICE_TOKEN": "svc", "AUTH_INTERNAL_URL": "http://auth",
+		"PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing"}
+	if _, err := Load(env(qa)); err == nil || !strings.Contains(err.Error(), "JWT_JWKS_URL") {
+		t.Fatalf("qa with a static key must be refused, got %v", err)
+	}
+	if _, err := Load(env(map[string]string{"JWT_PUBLIC_KEY": "", "JWT_JWKS_URL": "http://a/jwks", "JWKS_MIN_REFRESH": "0s"})); err == nil {
+		t.Fatal("JWKS_MIN_REFRESH must be positive")
+	}
+}
+
 func TestLoadMongoSettings(t *testing.T) {
 	if _, err := Load(env(map[string]string{"MONGO_URI": ""})); err == nil || !strings.Contains(err.Error(), "MONGO_URI") {
 		t.Fatalf("MONGO_URI must be required, got %v", err)
@@ -157,7 +179,7 @@ func TestLoadInternalOwners(t *testing.T) {
 // Outside dev every owner is required: a missing one would start a "healthy"
 // service that answers 503 to every write.
 func TestLoadRequiresEveryOwnerOutsideDev(t *testing.T) {
-	all := map[string]string{"APP_ENV": "qa", "SERVICE_TOKEN": "svc", "AUTH_INTERNAL_URL": "http://auth",
+	all := map[string]string{"APP_ENV": "qa", "SERVICE_TOKEN": "svc", "AUTH_INTERNAL_URL": "http://auth", "JWT_PUBLIC_KEY": "", "JWT_JWKS_URL": "http://auth/jwks",
 		"PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing"}
 	if _, err := Load(env(all)); err != nil {
 		t.Fatalf("complete qa settings rejected: %v", err)

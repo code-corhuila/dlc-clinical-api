@@ -42,6 +42,9 @@ as five processes from one image.
 
 ### Fixed
 
+- Access tokens are verified with the Auth JWKS by `kid` (`JWT_JWKS_URL`, required in qa and main), so a key rotation
+  needs no restart; an unknown `kid` refreshes the set at most every `JWKS_MIN_REFRESH`, and an unreachable JWKS answers
+  503. Tokens without `iat`, `jti`, `sid`, `roles` or `permissions` are rejected (authentication.md).
 - Outside `dev` every owner URL is required, and every process refuses a database below the `schema_info` version it
   requires, instead of starting healthy and answering 503 or accepting duplicates.
 - `scripts/integration-test.sh` runs the MongoDB and RabbitMQ integration tests against disposable, migrated instances;
