@@ -24,6 +24,14 @@ import (
 )
 
 func main() {
+	// "clinical-api healthcheck" is the container healthcheck (distroless: no curl).
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if err := httpapi.Probe(context.Background(), "http://127.0.0.1:8080", 3*time.Second); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
 		logger.Error("clinical-api stopped", "error", err.Error())

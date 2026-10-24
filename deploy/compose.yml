@@ -1,46 +1,44 @@
 # Clinical API, its outbox relay, its inbox consumer, its intent reconciler and its analytics consumer. The shared MongoDB instance belongs to dlc-infra-mongo and the
 # Clinical schema to dlc-clinical-db; this file never defines a database or volume.
+# Secrets (JWT key, one service credential per owner) are files in CLINICAL_SECRETS_DIR, mounted read-only at
+# /run/secrets/clinical; .env points the *_FILE variables there. Every process refuses to start without the migrated
+# schema or, in qa and main, without its owners: the restart policy retries until they are ready.
 name: dlc-clinical-api
+x-clinical: &clinical
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  env_file: ../.env
+  restart: unless-stopped
+  volumes:
+    - ${CLINICAL_SECRETS_DIR:?CLINICAL_SECRETS_DIR is required}:/run/secrets/clinical:ro
+  networks: [platform, clinical-data]
 services:
   clinical-api:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    env_file: ../.env
+    <<: *clinical
     expose: ["8080"]
-    networks: [platform, clinical-data]
+    healthcheck:
+      test: ["CMD", "/clinical-api", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
   # Publishes committed outbox events (Norma 5.3.11): same image, separate process.
   clinical-outbox-relay:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *clinical
     entrypoint: ["/clinical-outbox-relay"]
-    env_file: ../.env
-    networks: [platform, clinical-data]
   # Applies AppointmentCompleted and EncounterChargesCompleted to the encounter closure.
   clinical-inbox-consumer:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *clinical
     entrypoint: ["/clinical-inbox-consumer"]
-    env_file: ../.env
-    networks: [platform, clinical-data]
   # Settles write intents left PENDING by a lost owner answer or a crash (ADR-017).
   clinical-intent-reconciler:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *clinical
     entrypoint: ["/clinical-intent-reconciler"]
-    env_file: ../.env
-    networks: [platform, clinical-data]
   # Keeps the HU-CLN-003 analytics projections on its own queue (clinical.analytics).
   clinical-analytics-consumer:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    <<: *clinical
     entrypoint: ["/clinical-analytics-consumer"]
-    env_file: ../.env
-    networks: [platform, clinical-data]
 networks:
   platform:
     name: ${PLATFORM_NETWORK_NAME:-platform}
