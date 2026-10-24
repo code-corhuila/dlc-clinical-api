@@ -65,7 +65,7 @@ func LoadRelay(lookup func(string) (string, bool)) (Relay, error) {
 	if r.BatchSize, err = boundedInt(lookup, "RELAY_BATCH_SIZE", 100, 1, 1000); err != nil {
 		return Relay{}, err
 	}
-	if r.MaxAttempts, err = boundedInt(lookup, "RELAY_MAX_ATTEMPTS", 8, 1, 50); err != nil {
+	if r.MaxAttempts, err = boundedInt(lookup, "RELAY_MAX_ATTEMPTS", 20, 1, 50); err != nil {
 		return Relay{}, err
 	}
 	if r.BaseDelay > r.MaxDelay {

@@ -22,7 +22,7 @@ func TestLoadRelayDeclaresEveryLimit(t *testing.T) {
 	want := Relay{
 		MongoURI: "mongodb://db:27017/?replicaSet=rs0", MongoDatabase: "clinical", MongoMaxPoolSize: 10, MongoTimeout: 5 * time.Second,
 		BrokerURL: "amqp://broker:5672/", Exchange: "clinical.events", PublishTimeout: 5 * time.Second,
-		BatchSize: 100, Interval: 5 * time.Second, RunTimeout: 30 * time.Second, MaxAttempts: 8, BaseDelay: time.Second, MaxDelay: 5 * time.Minute,
+		BatchSize: 100, Interval: 5 * time.Second, RunTimeout: 30 * time.Second, MaxAttempts: 20, BaseDelay: time.Second, MaxDelay: 5 * time.Minute,
 		ShutdownTimeout: 20 * time.Second,
 	}
 	if cfg != want {
