@@ -30,7 +30,7 @@ func owner(t *testing.T, handler func(w http.ResponseWriter, r *http.Request)) (
 		handler(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	return &Client{BaseURL: srv.URL, Token: "svc-token", HTTP: &http.Client{Timeout: 200 * time.Millisecond}}, &seen
+	return &Client{BaseURL: srv.URL, Credential: StaticCredential("svc-token"), HTTP: &http.Client{Timeout: 200 * time.Millisecond}}, &seen
 }
 
 func reply(status int, body string) func(http.ResponseWriter, *http.Request) {

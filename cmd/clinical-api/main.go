@@ -168,24 +168,22 @@ func owners(cfg config.Config) (ownerSet, error) {
 	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" && cfg.BillingURL == "" {
 		return set, nil
 	}
-	token, err := authority.ServiceToken(cfg.ServiceToken, cfg.ServiceTokenFile)
-	if err != nil {
-		return ownerSet{}, err
+	client := func(base, ownFile string) *authority.Client {
+		return authority.NewClient(base, authority.CredentialFor(ownFile, cfg.ServiceTokenFile, cfg.ServiceToken), cfg.InternalTimeout)
 	}
-	client := func(base string) *authority.Client { return authority.NewClient(base, token, cfg.InternalTimeout) }
 	if cfg.AppointmentsURL != "" {
-		apts := authority.Appointments{Client: client(cfg.AppointmentsURL)}
+		apts := authority.Appointments{Client: client(cfg.AppointmentsURL, cfg.AppointmentsTokenFile)}
 		set.care, set.appointments = apts, apts
 		set.gate = authority.PatientGates{Client: apts.Client}
 	}
 	if cfg.PatientsURL != "" {
-		set.patients = authority.Patients{Client: client(cfg.PatientsURL)}
+		set.patients = authority.Patients{Client: client(cfg.PatientsURL, cfg.PatientsTokenFile)}
 	}
 	if cfg.BillingURL != "" {
-		set.billing = authority.Billing{Client: client(cfg.BillingURL)}
+		set.billing = authority.Billing{Client: client(cfg.BillingURL, cfg.BillingTokenFile)}
 	}
 	if cfg.AuthURL != "" {
-		set.sessions = authority.Sessions{Client: client(cfg.AuthURL)}
+		set.sessions = authority.Sessions{Client: client(cfg.AuthURL, cfg.AuthTokenFile)}
 	}
 	return set, nil
 }

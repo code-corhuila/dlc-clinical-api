@@ -55,13 +55,14 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 
 func TestLoadReadsOverrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"HTTP_ADDR":             ":9090",
-		"APP_ENV":               "qa",
-		"AUTH_INTERNAL_URL":     "http://auth",
-		"SERVICE_TOKEN":         "svc",
-		"SHUTDOWN_TIMEOUT":      "30s",
-		"JWT_PUBLIC_KEY":        "",
-		"JWT_JWKS_URL":          "http://auth/jwks",
+		"HTTP_ADDR":               ":9090",
+		"APP_ENV":                 "qa",
+		"AUTH_INTERNAL_URL":       "http://auth",
+		"SERVICE_TOKEN":           "svc",
+		"SHUTDOWN_TIMEOUT":        "30s",
+		"JWT_PUBLIC_KEY":          "",
+		"JWT_JWKS_URL":            "http://auth/jwks",
+		"AUTH_SERVICE_TOKEN_FILE": "/s/a", "PATIENTS_SERVICE_TOKEN_FILE": "/s/p", "APPOINTMENTS_SERVICE_TOKEN_FILE": "/s/ap", "BILLING_SERVICE_TOKEN_FILE": "/s/b",
 		"PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing",
 		"WRITE_TIMEOUT": "20s",
 	}))
@@ -181,7 +182,7 @@ func TestLoadInternalOwners(t *testing.T) {
 // Outside dev every owner is required: a missing one would start a "healthy"
 // service that answers 503 to every write.
 func TestLoadRequiresEveryOwnerOutsideDev(t *testing.T) {
-	all := map[string]string{"APP_ENV": "qa", "SERVICE_TOKEN": "svc", "AUTH_INTERNAL_URL": "http://auth", "JWT_PUBLIC_KEY": "", "JWT_JWKS_URL": "http://auth/jwks",
+	all := map[string]string{"AUTH_SERVICE_TOKEN_FILE": "/s/a", "PATIENTS_SERVICE_TOKEN_FILE": "/s/p", "APPOINTMENTS_SERVICE_TOKEN_FILE": "/s/ap", "BILLING_SERVICE_TOKEN_FILE": "/s/b", "APP_ENV": "qa", "SERVICE_TOKEN": "svc", "AUTH_INTERNAL_URL": "http://auth", "JWT_PUBLIC_KEY": "", "JWT_JWKS_URL": "http://auth/jwks",
 		"PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing"}
 	if _, err := Load(env(all)); err != nil {
 		t.Fatalf("complete qa settings rejected: %v", err)
@@ -232,5 +233,28 @@ func TestLoadClinicalPermissionNames(t *testing.T) {
 	}
 	if _, err := Load(env(map[string]string{"CLINICAL_WRITE_PERMISSION": ""})); err == nil {
 		t.Fatal("an empty permission name must be rejected")
+	}
+}
+
+// authentication.md: service credentials carry an explicit audience, so each
+// owner gets its own; a shared token is a dev convenience.
+func TestLoadOwnerCredentials(t *testing.T) {
+	own := map[string]string{"PATIENTS_INTERNAL_URL": "http://patients", "PATIENTS_SERVICE_TOKEN_FILE": "/run/secrets/patients"}
+	cfg, err := Load(env(own))
+	if err != nil || cfg.PatientsTokenFile != "/run/secrets/patients" {
+		t.Fatalf("an owner credential alone is enough: %+v %v", cfg, err)
+	}
+	qa := map[string]string{"APP_ENV": "qa", "SERVICE_TOKEN": "svc", "JWT_PUBLIC_KEY": "", "JWT_JWKS_URL": "http://auth/jwks",
+		"AUTH_INTERNAL_URL": "http://auth", "PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing"}
+	if _, err := Load(env(qa)); err == nil || !strings.Contains(err.Error(), "_SERVICE_TOKEN_FILE") {
+		t.Fatalf("qa with a shared token must be refused, got %v", err)
+	}
+	delete(qa, "SERVICE_TOKEN")
+	for _, o := range []string{"AUTH", "PATIENTS", "APPOINTMENTS", "BILLING"} {
+		qa[o+"_SERVICE_TOKEN_FILE"] = "/run/secrets/" + o
+	}
+	cfg, err = Load(env(qa))
+	if err != nil || cfg.AuthTokenFile != "/run/secrets/AUTH" || cfg.BillingTokenFile != "/run/secrets/BILLING" || cfg.AppointmentsTokenFile != "/run/secrets/APPOINTMENTS" {
+		t.Fatalf("qa with one credential per owner: %+v %v", cfg, err)
 	}
 }
