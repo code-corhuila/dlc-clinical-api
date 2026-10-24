@@ -20,16 +20,18 @@ type Memory struct {
 	keys    map[string]out.IdempotencyRecord
 	entries map[string]model.Entry
 	outbox  []out.OutboxEvent
+	treats  map[string]model.Treatment
 }
 
 // NewMemory returns an empty repository.
 func NewMemory() *Memory {
-	return &Memory{records: map[string]model.ClinicalRecord{}, keys: map[string]out.IdempotencyRecord{}, entries: map[string]model.Entry{}}
+	return &Memory{records: map[string]model.ClinicalRecord{}, keys: map[string]out.IdempotencyRecord{}, entries: map[string]model.Entry{}, treats: map[string]model.Treatment{}}
 }
 
 var (
-	_ out.RecordRepository = (*Memory)(nil)
-	_ out.EntryRepository  = (*Memory)(nil)
+	_ out.RecordRepository    = (*Memory)(nil)
+	_ out.EntryRepository     = (*Memory)(nil)
+	_ out.TreatmentRepository = (*Memory)(nil)
 )
 
 func keyScope(actor, operation, key string) string { return actor + "\x00" + operation + "\x00" + key }
