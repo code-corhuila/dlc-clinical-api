@@ -34,6 +34,14 @@ type Mongo struct {
 
 var _ out.RecordRepository = (*Mongo)(nil)
 
+// RequiredSchemaVersion is the dlc-clinical-db schema_info version this code
+// needs: its unique indexes back "one record per patient" and "one closure per
+// encounter", so an older or unmigrated database is never served.
+const RequiredSchemaVersion = 1
+
+// ErrSchemaNotMigrated reports a database below RequiredSchemaVersion.
+var ErrSchemaNotMigrated = errors.New("clinical database schema is not migrated")
+
 // OpenMongo connects with a bounded pool and deadlines, and verifies the primary.
 func OpenMongo(ctx context.Context, o MongoOptions) (*Mongo, error) {
 	client, err := mongo.Connect(options.Client().ApplyURI(o.URI).
@@ -50,7 +58,28 @@ func OpenMongo(ctx context.Context, o MongoOptions) (*Mongo, error) {
 		_ = client.Disconnect(ctx)
 		return nil, fmt.Errorf("mongo ping: %w", err)
 	}
-	return &Mongo{client: client, db: client.Database(o.Database)}, nil
+	m := &Mongo{client: client, db: client.Database(o.Database)}
+	if err := m.requireSchema(pingCtx); err != nil {
+		_ = client.Disconnect(ctx)
+		return nil, err
+	}
+	return m, nil
+}
+
+func (m *Mongo) requireSchema(ctx context.Context) error {
+	var info struct {
+		Version int `bson:"version"`
+	}
+	err := m.db.Collection("schema_info").FindOne(ctx, bson.D{{Key: "_id", Value: "clinical"}}).Decode(&info)
+	switch {
+	case errors.Is(err, mongo.ErrNoDocuments):
+		return fmt.Errorf("%w: no schema_info row; run the dlc-clinical-db migrations", ErrSchemaNotMigrated)
+	case err != nil:
+		return fmt.Errorf("mongo schema check: %w", err)
+	case info.Version < RequiredSchemaVersion:
+		return fmt.Errorf("%w: version %d, need %d; run the dlc-clinical-db migrations", ErrSchemaNotMigrated, info.Version, RequiredSchemaVersion)
+	}
+	return nil
 }
 
 // Close releases the pool during graceful shutdown.

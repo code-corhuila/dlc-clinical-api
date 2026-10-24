@@ -42,6 +42,10 @@ as five processes from one image.
 
 ### Fixed
 
+- Outside `dev` every owner URL is required, and every process refuses a database below the `schema_info` version it
+  requires, instead of starting healthy and answering 503 or accepting duplicates.
+- `scripts/integration-test.sh` runs the MongoDB and RabbitMQ integration tests against disposable, migrated instances;
+  plain `go test ./...` skips them.
 - Failing events are dead-lettered after the delivery limit on RabbitMQ 4 ([#58](https://github.com/code-corhuila/dlc-clinical-api/pull/58)).
 - The image builds the analytics consumer again ([#65](https://github.com/code-corhuila/dlc-clinical-api/pull/65)).
 - An unroutable event is retried with backoff instead of failing at once, so deploying Clinical before its consumers no longer
