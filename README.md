@@ -34,7 +34,11 @@ Requires Go 1.26 and a MongoDB replica set migrated by `dlc-clinical-db`. Variab
 [`.env.example`](.env.example); every limit is declared there and zero values are rejected because
 they mean "no limit". Each owner contract (`AUTH_`, `PATIENTS_`, `APPOINTMENTS_`,
 `BILLING_INTERNAL_URL`) is optional in `dev`; an owner left empty answers 503, so its
-operations fail closed instead of trusting an unverified state.
+operations fail closed instead of trusting an unverified state. In `qa` and `main` all four are
+required and the process refuses to start without them.
+
+Every process also refuses to start when the database `schema_info` version is below the one it
+requires (`RequiredSchemaVersion`): run the `dlc-clinical-db` migrations first.
 
 ```bash
 cp .env.example .env
@@ -68,8 +72,14 @@ deploy/                      Dockerfile and compose (no database, no volume)
 ```bash
 gofmt -l .
 go vet ./...
-go test ./...
+go test ./...                                # unit tests; integration tests are skipped
+scripts/integration-test.sh ../dlc-clinical-db # also the MongoDB and RabbitMQ integration tests
 ```
+
+`scripts/integration-test.sh` starts a disposable MongoDB 8 replica set migrated by
+`dlc-clinical-db` and a RabbitMQ 4 broker, runs `go test ./...` with `TEST_MONGO_URI` and
+`TEST_RABBITMQ_URL`, and removes them; extra arguments go to `go test` (for example `-v`). It needs
+Docker and a checkout of `dlc-clinical-db`.
 
 Coverage baseline (DoD: it must not decrease): **91.1%** of `internal/` with the integration tests,
 measured against a MongoDB replica set migrated by `dlc-clinical-db` and a RabbitMQ broker. The
