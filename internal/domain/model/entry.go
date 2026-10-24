@@ -51,7 +51,7 @@ type EntryInput struct {
 }
 
 // NewEntry validates and builds an entry. A diagnosis must carry the explicit
-// consultationId supplied by the caller; it is never inferred (CLN-008).
+// consultationId supplied by the caller; it is never inferred (CLN-010).
 func NewEntry(in EntryInput) (Entry, error) {
 	switch {
 	case !in.Kind.valid():
