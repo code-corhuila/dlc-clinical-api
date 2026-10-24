@@ -78,3 +78,24 @@ func TestPublisherReportsUnroutableAsTransient(t *testing.T) {
 		t.Fatalf("an unroutable event must be retryable, got %v", err)
 	}
 }
+
+// A dropped broker connection (restart, missed heartbeats) must not leave the
+// relay failing every event until it exhausts its attempts: the next
+// publication reconnects (found on qa, 2026-10-24).
+func TestPublisherReconnectsAfterTheConnectionDrops(t *testing.T) {
+	p, ch := newTestPublisher(t)
+	q, err := ch.QueueDeclare("", false, true, true, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ch.QueueBind(q.Name, "ConsultationRecorded", "clinical.events.test", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = p.conn.Close() // simulates the broker closing the TCP connection
+	if err := p.Publish(context.Background(), envelope("ev-r1", "ConsultationRecorded")); err != nil {
+		t.Fatalf("publish after a dropped connection must reconnect, got %v", err)
+	}
+	if msg, ok, err := ch.Get(q.Name, true); err != nil || !ok || msg.MessageId != "ev-r1" {
+		t.Fatalf("message not delivered after reconnecting: %v %v", ok, err)
+	}
+}
