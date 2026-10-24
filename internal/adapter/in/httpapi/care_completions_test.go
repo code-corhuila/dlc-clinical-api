@@ -33,12 +33,12 @@ type careEnv struct {
 func newCareEnv(t *testing.T, billing out.BillingAuthority) *careEnv {
 	store := persistence.NewMemory()
 	care, patients, clk, ids, apts := stubCare{}, stubPatients{}, &clock{t: testNow}, uuids{}, stubAppointments{}
-	routes := append(RecordRoutes(&usecase.RecordService{Repo: store, Care: care, Patients: patients, Clock: clk, IDs: ids}),
-		EntryRoutes(&usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
-	routes = append(routes, TreatmentRoutes(&usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids})...)
-	routes = append(routes, ProcedureRoutes(&usecase.ProcedureService{Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients, Appointments: apts, Clock: clk, IDs: ids})...)
+	routes := append(RecordRoutes(&usecase.RecordService{Repo: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids}),
+		EntryRoutes(&usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids})...)
+	routes = append(routes, TreatmentRoutes(&usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids})...)
+	routes = append(routes, ProcedureRoutes(&usecase.ProcedureService{Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients, Appointments: apts, Consultations: store, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids})...)
 	routes = append(routes, CareCompletionRoutes(&usecase.CareCompletionService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
-		Appointments: apts, Billing: billing, Clock: clk, IDs: ids})...)
+		Appointments: apts, Billing: billing, Intents: store, Admissions: store, Clock: clk, IDs: ids})...)
 	h := NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Routes: routes})
 	rec := post(h, validToken(t), key1, `{"patientId":"`+patientA+`"}`)
 	var body map[string]any

@@ -31,6 +31,15 @@ func (r *fakeEntries) CreateEntry(_ context.Context, e model.Entry, idem out.Ide
 	return nil
 }
 
+func (r *fakeEntries) ConsultationForAppointment(_ context.Context, recordID, appointmentID string) (string, bool, error) {
+	for _, e := range r.entries {
+		if e.Kind == model.KindConsultation && e.RecordID == recordID && e.AppointmentID == appointmentID {
+			return e.ID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func (r *fakeEntries) GetEntry(_ context.Context, id string) (model.Entry, error) {
 	e, ok := r.entries[id]
 	if !ok {
@@ -67,7 +76,7 @@ func setupEntries(t *testing.T) entryFixture {
 	e := &fakeEntries{entries: map[string]model.Entry{}, idem: map[string]out.IdempotencyRecord{}}
 	ef := entryFixture{fixture: f, entries: e}
 	ef.encounters = &fakeEncounters{closed: map[string]bool{}}
-	ef.svc = &EntryService{Records: f.repo, Entries: e, Closures: ef.encounters, Care: f.care, Patients: f.patients, Clock: f.svc.Clock, IDs: f.svc.IDs}
+	ef.svc = &EntryService{Records: f.repo, Entries: e, Closures: ef.encounters, Care: f.care, Patients: f.patients, Guard: f.svc.Guard, Clock: f.svc.Clock, IDs: f.svc.IDs}
 	r1, err := open(f, admin, "pat-1", "rec-key-1", "h")
 	r3, err3 := open(f, admin, "pat-3", "rec-key-3", "h")
 	if err != nil || err3 != nil {

@@ -55,27 +55,30 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	care, patients := own.care, own.patients
+	// Writes of patient clinical data run under the Appointments patient gate (ADR-017).
+	guard := &usecase.GuardedWrites{Intents: store, Admissions: store, Gate: own.gate, Care: care, Patients: patients,
+		Clock: system.Clock{}, IDs: system.UUIDs{}}
 	records := &usecase.RecordService{
-		Repo: store, Care: care, Patients: patients,
+		Repo: store, Care: care, Patients: patients, Guard: guard,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	entries := &usecase.EntryService{
-		Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
+		Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Guard: guard,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	treatments := &usecase.TreatmentService{
-		Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients,
+		Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Guard: guard,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	procedures := &usecase.ProcedureService{
 		Procedures: store, Treatments: store, Closures: store, Care: care, Patients: patients,
-		Appointments: own.appointments, Clock: system.Clock{}, IDs: system.UUIDs{},
+		Appointments: own.appointments, Consultations: store, Guard: guard, Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes := append(httpapi.RecordRoutes(records), httpapi.EntryRoutes(entries)...)
 	routes = append(routes, httpapi.ProcedureRoutes(procedures)...)
 	careCompletions := &usecase.CareCompletionService{
 		Records: store, Entries: store, Closures: store, Care: care, Patients: patients,
-		Appointments: own.appointments, Billing: own.billing,
+		Appointments: own.appointments, Billing: own.billing, Intents: store, Admissions: store,
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes = append(routes, httpapi.CareCompletionRoutes(careCompletions)...)
@@ -139,13 +142,14 @@ func loadPublicKey(cfg config.Config) (*rsa.PublicKey, error) {
 type ownerSet struct {
 	care         out.CareAuthority
 	appointments out.AppointmentAuthority
+	gate         out.PatientGate
 	patients     out.PatientDirectory
 	billing      out.BillingAuthority
 	sessions     httpapi.SessionValidator
 }
 
 func owners(cfg config.Config) (ownerSet, error) {
-	set := ownerSet{care: authority.Unavailable{}, appointments: authority.Unavailable{}, patients: authority.Unavailable{}, billing: authority.Unavailable{}}
+	set := ownerSet{care: authority.Unavailable{}, appointments: authority.Unavailable{}, gate: authority.Unavailable{}, patients: authority.Unavailable{}, billing: authority.Unavailable{}}
 	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" && cfg.BillingURL == "" {
 		return set, nil
 	}
@@ -163,6 +167,7 @@ func owners(cfg config.Config) (ownerSet, error) {
 	if cfg.AppointmentsURL != "" {
 		apts := authority.Appointments{Client: client(cfg.AppointmentsURL)}
 		set.care, set.appointments = apts, apts
+		set.gate = authority.PatientGates{Client: apts.Client}
 	}
 	if cfg.PatientsURL != "" {
 		set.patients = authority.Patients{Client: client(cfg.PatientsURL)}

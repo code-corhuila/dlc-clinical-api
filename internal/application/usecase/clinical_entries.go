@@ -23,6 +23,7 @@ type EntryService struct {
 	Closures out.EncounterClosures
 	Care     out.CareAuthority
 	Patients out.PatientDirectory
+	Guard    *GuardedWrites
 	Clock    out.Clock
 	IDs      out.IDGenerator
 }
@@ -63,7 +64,7 @@ func (s *EntryService) Record(ctx context.Context, cmd in.RecordEntryCommand) (i
 			return in.EntryResult{}, err
 		}
 	}
-	return s.create(ctx, cmd.Actor, OpRecordEntry, cmd.IdempotencyKey, cmd.RequestHash, entry, s.events(cmd, rec, entry, now))
+	return s.create(ctx, cmd.Actor, rec, OpRecordEntry, cmd.IdempotencyKey, cmd.RequestHash, entry, s.events(cmd, rec, entry, now))
 }
 
 // Amend appends a correction linked to the original entry (CLN-004, CLN-005).
@@ -81,7 +82,8 @@ func (s *EntryService) Amend(ctx context.Context, cmd in.AmendEntryCommand) (in.
 	if err != nil {
 		return in.EntryResult{}, err
 	}
-	if _, err := s.writableRecord(ctx, cmd.Actor, orig.RecordID); err != nil {
+	rec, err := s.writableRecord(ctx, cmd.Actor, orig.RecordID)
+	if err != nil {
 		return in.EntryResult{}, err
 	}
 	if err := ensureOpen(ctx, s.Closures, orig.AppointmentID); err != nil {
@@ -91,7 +93,7 @@ func (s *EntryService) Amend(ctx context.Context, cmd in.AmendEntryCommand) (in.
 	if err != nil {
 		return in.EntryResult{}, err
 	}
-	return s.create(ctx, cmd.Actor, OpAmendEntry, cmd.IdempotencyKey, cmd.RequestHash, fix, nil)
+	return s.create(ctx, cmd.Actor, rec, OpAmendEntry, cmd.IdempotencyKey, cmd.RequestHash, fix, nil)
 }
 
 // List authorizes the parent record before reading or counting its entries.
@@ -165,12 +167,26 @@ func (s *EntryService) replay(ctx context.Context, actor in.Actor, op, key, hash
 	return in.EntryResult{Entry: entry, Replayed: true}, true, nil
 }
 
-func (s *EntryService) create(ctx context.Context, actor in.Actor, op, key, hash string, e model.Entry, events []out.OutboxEvent) (in.EntryResult, error) {
+// create appends the entry under the patient guard. A diagnosis is admitted
+// to the encounter of its consultation and an appointment entry to the
+// encounter of that appointment's consultation (ADR-017 §5).
+func (s *EntryService) create(ctx context.Context, actor in.Actor, rec model.ClinicalRecord, op, key, hash string, e model.Entry, events []out.OutboxEvent) (in.EntryResult, error) {
 	idem := out.IdempotencyRecord{
 		ActorID: actor.ID, Operation: op, Key: key, RequestHash: hash, ResourceID: e.ID,
 		ResponseStatus: statusCreated, CreatedAt: e.CreatedAt, ExpiresAt: e.CreatedAt.Add(idempotencyRetention),
 	}
-	err := s.Entries.CreateEntry(ctx, e, idem, events)
+	var encounter *out.EncounterKey
+	switch {
+	case e.ConsultationID != "":
+		encounter = &out.EncounterKey{RecordID: rec.ID, ConsultationID: e.ConsultationID}
+	case e.Kind != model.KindConsultation:
+		var err error
+		if encounter, err = appointmentEncounter(ctx, s.Entries, rec.ID, e.AppointmentID); err != nil {
+			return in.EntryResult{}, err
+		}
+	}
+	err := s.Guard.Run(ctx, GuardedWrite{Actor: actor, PatientID: rec.PatientID, Encounter: encounter,
+		Commit: func(tagged context.Context) error { return s.Entries.CreateEntry(tagged, e, idem, events) }})
 	if errors.Is(err, out.ErrDuplicateIdempotency) {
 		res, _, rerr := s.replay(ctx, actor, op, key, hash)
 		return res, rerr

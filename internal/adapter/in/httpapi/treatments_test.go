@@ -21,9 +21,9 @@ type treatmentsEnv struct {
 func newTreatmentsEnv(t *testing.T) *treatmentsEnv {
 	store := persistence.NewMemory()
 	care, patients, clk, ids := stubCare{}, stubPatients{}, &clock{t: testNow}, uuids{}
-	records := &usecase.RecordService{Repo: store, Care: care, Patients: patients, Clock: clk, IDs: ids}
-	entries := &usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids}
-	treatments := &usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Clock: clk, IDs: ids}
+	records := &usecase.RecordService{Repo: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids}
+	entries := &usecase.EntryService{Records: store, Entries: store, Closures: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids}
+	treatments := &usecase.TreatmentService{Records: store, Entries: store, Treatments: store, Closures: store, Care: care, Patients: patients, Guard: testGuard(store, care, patients), Clock: clk, IDs: ids}
 	routes := append(RecordRoutes(records), EntryRoutes(entries)...)
 	h := NewRouter(Options{Verifier: testVerifier(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Routes: append(routes, TreatmentRoutes(treatments)...)})
 	rec := post(h, validToken(t), key1, `{"patientId":"`+patientA+`"}`)

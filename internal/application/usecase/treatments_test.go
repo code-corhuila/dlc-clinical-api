@@ -73,7 +73,7 @@ func setupTreatments(t *testing.T) treatmentFixture {
 	ef := setupEntries(t)
 	repo := &fakeTreatments{items: map[string]model.Treatment{}, idem: map[string]out.IdempotencyRecord{}}
 	tf := treatmentFixture{entryFixture: ef, repo: repo}
-	tf.svc = &TreatmentService{Records: ef.repo, Entries: ef.entries, Treatments: repo, Closures: ef.encounters, Care: ef.care, Patients: ef.patients, Clock: ef.svc.Clock, IDs: ef.svc.IDs}
+	tf.svc = &TreatmentService{Records: ef.repo, Entries: ef.entries, Treatments: repo, Closures: ef.encounters, Care: ef.care, Patients: ef.patients, Guard: ef.svc.Guard, Clock: ef.svc.Clock, IDs: ef.svc.IDs}
 	cons, _ := ef.record(dentist, ef.rec1, model.KindConsultation, "t-cons-01")
 	diag, err := ef.record(dentist, ef.rec1, model.KindDiagnosis, "t-diag-01", func(c *in.RecordEntryCommand) { c.ConsultationID = cons.Entry.ID })
 	if err != nil {
