@@ -1,5 +1,5 @@
 // Package httpapi is the inbound HTTP adapter: routes, validation, error
-// envelope and correlation. It depends only on inbound ports.
+// envelope, correlation and token verification. It depends only on inbound ports.
 package httpapi
 
 import (
@@ -16,19 +16,21 @@ type Route struct {
 
 // Options are the concrete collaborators supplied by the composition root.
 type Options struct {
-	Logger *slog.Logger
-	Routes []Route
+	Verifier *Verifier
+	Logger   *slog.Logger
+	Routes   []Route
 }
 
-// NewRouter registers the service routes behind correlation, access log
-// and panic recovery. Health is public and exposes only its status.
+// NewRouter registers the service routes behind correlation, access log,
+// panic recovery and authentication. Health is public and exposes only its status.
 func NewRouter(o Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", health)
 	for _, rt := range o.Routes {
 		mux.HandleFunc(rt.Pattern, rt.Handler)
 	}
-	return withCorrelation(o.Logger, withAccessLog(mux))
+	public := map[string]bool{"/health": true}
+	return withCorrelation(o.Logger, withAccessLog(withAuthentication(o.Verifier, public, mux)))
 }
 
 func health(w http.ResponseWriter, _ *http.Request) {

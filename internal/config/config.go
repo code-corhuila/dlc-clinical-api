@@ -18,6 +18,10 @@ type Config struct {
 	ShutdownTimeout   time.Duration
 	MaxHeaderBytes    int
 	MaxBodyBytes      int64
+	JWTIssuer         string
+	JWTAudience       string
+	JWTPublicKey      string // PEM, also accepted on one line with literal "\n"
+	JWTPublicKeyFile  string
 }
 
 var environments = map[string]bool{"dev": true, "qa": true, "main": true}
@@ -70,5 +74,26 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		}
 		*d.target = parsed
 	}
+	if err := loadIdentity(lookup, &cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// loadIdentity requires the issuer, audience and exactly one public key source.
+// The service never holds a private or shared key.
+func loadIdentity(lookup func(string) (string, bool), cfg *Config) error {
+	cfg.JWTIssuer, _ = lookup("JWT_ISSUER")
+	cfg.JWTAudience, _ = lookup("JWT_AUDIENCE")
+	cfg.JWTPublicKey, _ = lookup("JWT_PUBLIC_KEY")
+	cfg.JWTPublicKeyFile, _ = lookup("JWT_PUBLIC_KEY_FILE")
+	switch {
+	case cfg.JWTIssuer == "":
+		return fmt.Errorf("JWT_ISSUER is required")
+	case cfg.JWTAudience == "":
+		return fmt.Errorf("JWT_AUDIENCE is required")
+	case (cfg.JWTPublicKey == "") == (cfg.JWTPublicKeyFile == ""):
+		return fmt.Errorf("set exactly one of JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE")
+	}
+	return nil
 }
