@@ -46,7 +46,7 @@ func newProceduresEnv(t *testing.T, apts out.AppointmentAuthority) *proceduresEn
 const extraJSON = `{"sourceRecordId":"%s","type":"ADDITIONAL_MATERIAL","code":"RES-1","quantity":"1.5","description":"Resina","clinicalReason":"Fractura"}`
 
 func completionBody(materials string) string {
-	return `{"expectedVersion":1,"materialsUsed":[` + materials + `],"additionalRequirements":[]}`
+	return `{"expectedVersion":2,"materialsUsed":[` + materials + `],"additionalRequirements":[]}`
 }
 
 func TestCompleteProcedureReturnsProgressOnly(t *testing.T) {

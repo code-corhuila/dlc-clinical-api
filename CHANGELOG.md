@@ -46,6 +46,8 @@ as five processes from one image.
 - The image builds the analytics consumer again ([#65](https://github.com/code-corhuila/dlc-clinical-api/pull/65)).
 - An unroutable event is retried with backoff instead of failing at once, so deploying Clinical before its consumers no longer
   loses events ([#66](https://github.com/code-corhuila/dlc-clinical-api/pull/66)).
+- Procedure completion checks `expectedVersion` against the Treatment version, the only version `clinical-service.yaml`
+  exposes, so a client that reads the treatment can complete its procedures.
 
 ### Known limits
 

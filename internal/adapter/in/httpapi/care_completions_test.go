@@ -49,7 +49,7 @@ func newCareEnv(t *testing.T, billing out.BillingAuthority) *careEnv {
 	_, tr := e.send(t, "/api/v1/treatments", e.key(), `{"patientId":"`+patientA+`","clinicalReason":"Control","procedures":[{"procedureCode":"OPER-01","appointmentId":"`+appointmentA+`"}]}`)
 	_, _ = e.send(t, "/api/v1/treatments/"+tr["id"].(string)+"/starts", e.key(), `{"expectedVersion":1}`)
 	e.procedure = tr["procedures"].([]any)[0].(map[string]any)["id"].(string)
-	_, _ = e.send(t, "/api/v1/procedures/"+e.procedure+"/completions", e.key(), `{"expectedVersion":1}`)
+	_, _ = e.send(t, "/api/v1/procedures/"+e.procedure+"/completions", e.key(), `{"expectedVersion":2}`)
 	return e
 }
 

@@ -101,7 +101,8 @@ func extra(src string, typ model.ExtraType) model.ExtraInput {
 }
 
 func (pf procedureFixture) complete(actor in.Actor, key string, mut ...func(*in.CompleteProcedureCommand)) (in.ProcedureCompletionResult, error) {
-	cmd := in.CompleteProcedureCommand{Actor: actor, ProcedureID: pf.procedure, ExpectedVersion: 1, IdempotencyKey: key, RequestHash: "h-" + key, CorrelationID: "corr-p",
+	// A started treatment is at version 2: the version the client reads.
+	cmd := in.CompleteProcedureCommand{Actor: actor, ProcedureID: pf.procedure, ExpectedVersion: 2, IdempotencyKey: key, RequestHash: "h-" + key, CorrelationID: "corr-p",
 		MaterialsUsed:          []model.ExtraInput{extra("src-m1", model.ExtraAdditionalMaterial)},
 		AdditionalRequirements: []model.ExtraInput{extra("src-r1", model.ExtraComplexityAdjustment)}}
 	for _, m := range mut {
@@ -136,6 +137,18 @@ func TestCompleteProcedureRecordsProgressExtrasAndEvent(t *testing.T) {
 		if _, ok := ev.Payload[money]; ok {
 			t.Fatalf("money field %q in a clinical event", money)
 		}
+	}
+}
+
+// Treatment.procedures exposes no version (clinical-service.yaml): the client
+// sends the version of the Treatment it read, 2 once the treatment started.
+func TestCompleteProcedureExpectsTheTreatmentVersion(t *testing.T) {
+	pf := setupProcedures(t, true)
+	if _, err := pf.complete(dentist, "k-tv-01", func(c *in.CompleteProcedureCommand) { c.ExpectedVersion = 2 }); err != nil {
+		t.Fatalf("the treatment version must be accepted, got %v", err)
+	}
+	if got := pf.procs.items[pf.procedure]; got.Status != model.StatusCompleted {
+		t.Fatalf("procedure = %+v", got)
 	}
 }
 
