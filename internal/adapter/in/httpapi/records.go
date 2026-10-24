@@ -57,7 +57,7 @@ type recordHandlers struct{ svc in.ClinicalRecords }
 
 func actorFrom(r *http.Request) in.Actor {
 	p, _ := PrincipalFrom(r.Context())
-	return in.Actor{ID: p.Subject, Roles: p.Roles, Permissions: p.Permissions}
+	return in.Actor{ID: p.Subject, Roles: p.Roles, ClinicalRead: p.ClinicalRead, ClinicalWrite: p.ClinicalWrite}
 }
 
 func (h recordHandlers) open(w http.ResponseWriter, r *http.Request) {

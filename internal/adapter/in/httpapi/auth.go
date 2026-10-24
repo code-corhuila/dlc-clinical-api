@@ -25,6 +25,10 @@ type Principal struct {
 	SessionID   string   `json:"sessionId,omitempty"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
+	// Clinical grants resolved from Permissions with the configured names; the
+	// Administrator needs them besides the role (PAT-003).
+	ClinicalRead  bool `json:"clinicalRead"`
+	ClinicalWrite bool `json:"clinicalWrite"`
 }
 
 func (p Principal) HasRole(role string) bool       { return slices.Contains(p.Roles, role) }
@@ -43,6 +47,10 @@ type Verifier struct {
 	Issuer   string
 	Audience string
 	Now      func() time.Time
+	// ReadPermission and WritePermission name the claims that grant clinical
+	// access, pending the Auth permission catalogue; empty grants nothing.
+	ReadPermission  string
+	WritePermission string
 	// Sessions, when set, asks auth whether the session is still active after
 	// the local checks pass; nil keeps local verification only (dev).
 	Sessions SessionValidator
@@ -111,7 +119,9 @@ func (v *Verifier) VerifyContext(ctx context.Context, token string) (Principal, 
 	// authentication.md lists iat, jti, sid, roles and permissions as required claims.
 	case c.Iat == nil, c.Jti == "", c.Sid == "", c.Roles == nil, c.Permissions == nil:
 	default:
-		return Principal{Subject: c.Sub, SessionID: c.Sid, Roles: c.Roles, Permissions: c.Permissions}, nil
+		return Principal{Subject: c.Sub, SessionID: c.Sid, Roles: c.Roles, Permissions: c.Permissions,
+			ClinicalRead:  v.ReadPermission != "" && slices.Contains(c.Permissions, v.ReadPermission),
+			ClinicalWrite: v.WritePermission != "" && slices.Contains(c.Permissions, v.WritePermission)}, nil
 	}
 	return Principal{}, errInvalidToken
 }

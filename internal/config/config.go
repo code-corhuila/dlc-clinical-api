@@ -37,6 +37,10 @@ type Config struct {
 	ServiceTokenFile  string
 	InternalTimeout   time.Duration  // bound of each owner call
 	ClinicTimezone    *time.Location // calendar of the HU-CLN-003 dashboard
+	// Token permissions that grant an Administrator clinical access (PAT-003),
+	// pending the Auth permission catalogue.
+	ClinicalReadPermission  string
+	ClinicalWritePermission string
 }
 
 var environments = map[string]bool{"dev": true, "qa": true, "main": true}
@@ -97,6 +101,15 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if err := loadOwners(lookup, &cfg); err != nil {
 		return Config{}, err
+	}
+	cfg.ClinicalReadPermission, cfg.ClinicalWritePermission = "clinical:read", "clinical:write"
+	for key, target := range map[string]*string{"CLINICAL_READ_PERMISSION": &cfg.ClinicalReadPermission, "CLINICAL_WRITE_PERMISSION": &cfg.ClinicalWritePermission} {
+		if v, ok := lookup(key); ok {
+			if v == "" {
+				return Config{}, fmt.Errorf("%s must not be empty", key)
+			}
+			*target = v
+		}
 	}
 	loc, err := loadClinicTimezone(lookup)
 	if err != nil {

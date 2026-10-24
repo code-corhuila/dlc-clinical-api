@@ -42,6 +42,9 @@ as five processes from one image.
 
 ### Fixed
 
+- The permission names that give an Administrator clinical access are configuration (`CLINICAL_READ_PERMISSION`,
+  `CLINICAL_WRITE_PERMISSION`, default `clinical:read`/`clinical:write`) resolved by the HTTP adapter; the use cases
+  receive booleans. Auth has not published its permission catalogue yet: these must match the names it issues.
 - Access tokens are verified with the Auth JWKS by `kid` (`JWT_JWKS_URL`, required in qa and main), so a key rotation
   needs no restart; an unknown `kid` refreshes the set at most every `JWKS_MIN_REFRESH`, and an unreachable JWKS answers
   503. Tokens without `iat`, `jti`, `sid`, `roles` or `permissions` are rejected (authentication.md).

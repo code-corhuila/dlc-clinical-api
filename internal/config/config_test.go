@@ -24,23 +24,25 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := Config{
-		HTTPAddr:          ":8080",
-		AppEnv:            "dev",
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		ShutdownTimeout:   20 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-		MaxBodyBytes:      1 << 20,
-		JWTIssuer:         "iss",
-		JWTAudience:       "clinical-service",
-		JWTPublicKey:      "pem",
-		MongoURI:          "mongodb://db:27017/?replicaSet=rs0",
-		MongoDatabase:     "clinical",
-		MongoMaxPoolSize:  10,
-		MongoTimeout:      5 * time.Second,
-		InternalTimeout:   3 * time.Second,
+		HTTPAddr:                ":8080",
+		AppEnv:                  "dev",
+		ReadHeaderTimeout:       5 * time.Second,
+		ReadTimeout:             10 * time.Second,
+		WriteTimeout:            15 * time.Second,
+		IdleTimeout:             60 * time.Second,
+		ShutdownTimeout:         20 * time.Second,
+		MaxHeaderBytes:          1 << 20,
+		MaxBodyBytes:            1 << 20,
+		JWTIssuer:               "iss",
+		JWTAudience:             "clinical-service",
+		JWTPublicKey:            "pem",
+		MongoURI:                "mongodb://db:27017/?replicaSet=rs0",
+		MongoDatabase:           "clinical",
+		MongoMaxPoolSize:        10,
+		MongoTimeout:            5 * time.Second,
+		InternalTimeout:         3 * time.Second,
+		ClinicalReadPermission:  "clinical:read",
+		ClinicalWritePermission: "clinical:write",
 	}
 	if cfg.ClinicTimezone == nil || cfg.ClinicTimezone.String() != "America/Bogota" {
 		t.Fatalf("clinic timezone = %v", cfg.ClinicTimezone)
@@ -216,5 +218,19 @@ func TestLoadAuthSessionValidation(t *testing.T) {
 	}
 	if cfg, err := Load(env(map[string]string{"BILLING_INTERNAL_URL": "http://billing", "SERVICE_TOKEN": "svc"})); err != nil || cfg.BillingURL != "http://billing" {
 		t.Fatalf("got %+v %v", cfg, err)
+	}
+}
+
+func TestLoadClinicalPermissionNames(t *testing.T) {
+	cfg, err := Load(env(nil))
+	if err != nil || cfg.ClinicalReadPermission != "clinical:read" || cfg.ClinicalWritePermission != "clinical:write" {
+		t.Fatalf("defaults: %+v %v", cfg, err)
+	}
+	cfg, err = Load(env(map[string]string{"CLINICAL_READ_PERMISSION": "clinical.read", "CLINICAL_WRITE_PERMISSION": "clinical.write"}))
+	if err != nil || cfg.ClinicalReadPermission != "clinical.read" || cfg.ClinicalWritePermission != "clinical.write" {
+		t.Fatalf("overrides: %+v %v", cfg, err)
+	}
+	if _, err := Load(env(map[string]string{"CLINICAL_WRITE_PERMISSION": ""})); err == nil {
+		t.Fatal("an empty permission name must be rejected")
 	}
 }
