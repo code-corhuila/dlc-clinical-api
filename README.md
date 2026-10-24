@@ -64,7 +64,21 @@ CLINICAL_SECRETS_DIR=/srv/clinical/secrets docker compose -f deploy/compose.yml 
 Every process restarts until its dependencies are ready: it refuses a database below
 `RequiredSchemaVersion` and, in `qa`/`main`, a configuration without every owner. `clinical-api`
 reports readiness through `clinical-api healthcheck` (`GET /health/ready`, MongoDB reachable).
-RabbitMQ is reached through `RABBITMQ_URL` on the `platform` network.
+RabbitMQ is reached through `RABBITMQ_URL` on the `platform` network. The relay reconnects on its
+next run when the broker drops the connection; the consumers exit and are restarted.
+
+### Re-sending FAILED events
+
+An outbox event is marked `FAILED` only after `RELAY_MAX_ATTEMPTS` (about half an hour of broker
+outage with the defaults). Once the cause is fixed, an operator with the migration identity puts
+them back in the queue; the relay publishes them on its next run and every consumer deduplicates
+by `eventId`:
+
+```js
+db.getSiblingDB("clinical").outbox_events.updateMany(
+  { status: "FAILED" },
+  { $set: { status: "PENDING", attempts: 0 }, $unset: { failureReason: "" } })
+```
 
 ### Integration checklist
 
