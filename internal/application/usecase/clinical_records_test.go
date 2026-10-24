@@ -116,7 +116,7 @@ var (
 	dentist   = in.Actor{ID: "dentist-1", Roles: []string{RoleDentist}}
 	other     = in.Actor{ID: "dentist-2", Roles: []string{RoleDentist}}
 	assistant = in.Actor{ID: "assistant-1", Roles: []string{RoleAssistant}}
-	admin     = in.Actor{ID: "admin-1", Roles: []string{RoleAdministrator}, Permissions: []string{PermClinicalRead, PermClinicalWrite}}
+	admin     = in.Actor{ID: "admin-1", Roles: []string{RoleAdministrator}, ClinicalRead: true, ClinicalWrite: true}
 	plainAdm  = in.Actor{ID: "admin-2", Roles: []string{RoleAdministrator}}
 )
 
