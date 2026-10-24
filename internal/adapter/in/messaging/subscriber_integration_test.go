@@ -41,7 +41,7 @@ func newHarness(t *testing.T) harness {
 func (h harness) subscriber(t *testing.T) *Subscriber {
 	t.Helper()
 	s, err := NewSubscriber(Options{URL: h.url, Queue: h.queue, DeliveryLimit: 2, Prefetch: 1, Timeout: 5 * time.Second,
-		Bindings: []Binding{{Exchange: "appointments.events", RoutingKey: "AppointmentCompleted"}, {Exchange: "billing.events", RoutingKey: "EncounterChargesCompleted"}}})
+		Bindings: []Binding{{Exchange: "test.appointments.events", RoutingKey: "AppointmentCompleted"}, {Exchange: "test.billing.events", RoutingKey: "EncounterChargesCompleted"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func runFor(s *Subscriber, d time.Duration, handle func(context.Context, in.Inco
 func TestSubscriberDecodesTheEnvelopeAndAcknowledges(t *testing.T) {
 	h := newHarness(t)
 	s := h.subscriber(t)
-	h.publish(t, "appointments.events", "AppointmentCompleted", appointmentEvent)
+	h.publish(t, "test.appointments.events", "AppointmentCompleted", appointmentEvent)
 	var got in.IncomingEvent
 	runFor(s, 2*time.Second, func(_ context.Context, e in.IncomingEvent) error { got = e; return nil })
 	if got.EventID != "ev-1" || got.EventType != "AppointmentCompleted" || got.EventVersion != 1 || got.CorrelationID != "corr-1" ||
@@ -93,7 +93,7 @@ func TestSubscriberDecodesTheEnvelopeAndAcknowledges(t *testing.T) {
 func TestSubscriberQuarantinesMalformedMessages(t *testing.T) {
 	h := newHarness(t)
 	s := h.subscriber(t)
-	h.publish(t, "billing.events", "EncounterChargesCompleted", `{not json`)
+	h.publish(t, "test.billing.events", "EncounterChargesCompleted", `{not json`)
 	var calls atomic.Int32
 	runFor(s, 2*time.Second, func(context.Context, in.IncomingEvent) error { calls.Add(1); return nil })
 	if calls.Load() != 0 || h.dlqDepth(t) != 1 {
@@ -104,7 +104,7 @@ func TestSubscriberQuarantinesMalformedMessages(t *testing.T) {
 func TestSubscriberRetriesThenDeadLetters(t *testing.T) {
 	h := newHarness(t)
 	s := h.subscriber(t)
-	h.publish(t, "appointments.events", "AppointmentCompleted", appointmentEvent)
+	h.publish(t, "test.appointments.events", "AppointmentCompleted", appointmentEvent)
 	var calls atomic.Int32
 	runFor(s, 4*time.Second, func(context.Context, in.IncomingEvent) error {
 		calls.Add(1)
