@@ -42,6 +42,9 @@ as five processes from one image.
 
 ### Fixed
 
+- The outbox relay reconnects when the broker drops its connection instead of failing every event until it gives up
+  (found on qa); `RELAY_MAX_ATTEMPTS` defaults to 20, about half an hour of outage, and the README explains how to re-send
+  `FAILED` events.
 - Deploy: the five processes restart until their dependencies are ready, mount their secrets read-only from
   `CLINICAL_SECRETS_DIR`, and `clinical-api healthcheck` probes readiness inside the distroless image. The README lists
   the deployment order and what each owner must provide (integration checklist).
