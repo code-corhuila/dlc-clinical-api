@@ -42,6 +42,9 @@ as five processes from one image.
 
 ### Fixed
 
+- Deploy: the five processes restart until their dependencies are ready, mount their secrets read-only from
+  `CLINICAL_SECRETS_DIR`, and `clinical-api healthcheck` probes readiness inside the distroless image. The README lists
+  the deployment order and what each owner must provide (integration checklist).
 - Each owner gets its own service credential (`<OWNER>_SERVICE_TOKEN_FILE`, required in qa and main) read on every
   call, so a short-lived service JWT with that owner's audience can be rotated in place; the shared `SERVICE_TOKEN` is for
   dev. An unreadable credential fails closed without calling the owner.
