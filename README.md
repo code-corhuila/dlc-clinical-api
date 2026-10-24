@@ -121,7 +121,8 @@ scripts/integration-test.sh ../dlc-clinical-db # also the MongoDB and RabbitMQ i
 `scripts/integration-test.sh` starts a disposable MongoDB 8 replica set migrated by
 `dlc-clinical-db` and a RabbitMQ 4 broker, runs `go test ./...` with `TEST_MONGO_URI` and
 `TEST_RABBITMQ_URL`, and removes them; extra arguments go to `go test` (for example `-v`). It needs
-Docker and a checkout of `dlc-clinical-db`.
+Docker and a checkout of `dlc-clinical-db`. CI runs it in the `integration` job against the
+`dlc-clinical-db` branch of the same stage (the pull request base).
 
 Coverage baseline (DoD: it must not decrease): **91.1%** of `internal/` with the integration tests,
 measured against a MongoDB replica set migrated by `dlc-clinical-db` and a RabbitMQ broker. The

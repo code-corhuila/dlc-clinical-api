@@ -22,3 +22,20 @@ jobs:
         run: go test -race ./...
       - name: build image
         run: docker build -f deploy/Dockerfile .
+  # The MongoDB and RabbitMQ integration tests skip without TEST_MONGO_URI and
+  # TEST_RABBITMQ_URL; this job runs them against the schema of the same stage.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: code-corhuila/dlc-clinical-db
+          ref: ${{ github.base_ref || 'develop' }}
+          path: .ci/dlc-clinical-db
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: integration tests (MongoDB 8 migrated by dlc-clinical-db, RabbitMQ 4)
+        run: scripts/integration-test.sh .ci/dlc-clinical-db -p 1
