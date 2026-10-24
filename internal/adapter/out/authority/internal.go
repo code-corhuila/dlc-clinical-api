@@ -25,27 +25,58 @@ var errOwnerNotFound = errors.New("owner resource not found")
 // credential and the request's correlation id. HTTP.Timeout bounds each call;
 // anything but a well-formed 200 or 404 is out.ErrUnavailable (fail closed).
 type Client struct {
-	BaseURL string
-	Token   string
-	HTTP    *http.Client
+	BaseURL    string
+	Credential Credential
+	HTTP       *http.Client
 }
 
 // NewClient builds an owner client bounded by timeout on every call.
-func NewClient(baseURL, token string, timeout time.Duration) *Client {
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), Token: token, HTTP: &http.Client{Timeout: timeout}}
+func NewClient(baseURL string, credential Credential, timeout time.Duration) *Client {
+	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), Credential: credential, HTTP: &http.Client{Timeout: timeout}}
 }
 
-// ServiceToken returns the service credential from its value or its file
-// (a mounted secret); it is never logged.
-func ServiceToken(value, file string) (string, error) {
-	if file == "" {
-		return value, nil
+// Credential supplies the service credential of one owner audience
+// (authentication.md: short-lived signed service JWTs); it is never logged.
+type Credential interface {
+	Token() (string, error)
+}
+
+// StaticCredential is a fixed value (dev).
+type StaticCredential string
+
+func (c StaticCredential) Token() (string, error) {
+	if c == "" {
+		return "", errors.New("empty service credential")
 	}
-	raw, err := os.ReadFile(file)
+	return string(c), nil
+}
+
+// CredentialFor picks the owner's own credential file, else the shared file,
+// else the shared value (dev).
+func CredentialFor(ownFile, sharedFile, shared string) Credential {
+	switch {
+	case ownFile != "":
+		return FileCredential(ownFile)
+	case sharedFile != "":
+		return FileCredential(sharedFile)
+	}
+	return StaticCredential(shared)
+}
+
+// FileCredential is a mounted secret read on every call, so a short-lived
+// token rotated in place is used without a restart.
+type FileCredential string
+
+func (c FileCredential) Token() (string, error) {
+	raw, err := os.ReadFile(string(c))
 	if err != nil {
-		return "", fmt.Errorf("SERVICE_TOKEN_FILE: %w", err)
+		return "", fmt.Errorf("service credential file: %w", err)
 	}
-	return strings.TrimSpace(string(raw)), nil
+	token := strings.TrimSpace(string(raw))
+	if token == "" {
+		return "", errors.New("empty service credential file")
+	}
+	return token, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values, dst any) error {
@@ -70,6 +101,10 @@ func (c *Client) do(ctx context.Context, method, path, idempotencyKey string, bo
 		}
 		payload = bytes.NewReader(raw)
 	}
+	token, err := c.Credential.Token()
+	if err != nil {
+		return fmt.Errorf("%v: %w", err, out.ErrUnavailable)
+	}
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+"/internal/v1"+path, payload)
 	if err != nil {
 		return fmt.Errorf("%v: %w", err, out.ErrUnavailable)
@@ -80,7 +115,7 @@ func (c *Client) do(ctx context.Context, method, path, idempotencyKey string, bo
 	if idempotencyKey != "" {
 		req.Header.Set("Idempotency-Key", idempotencyKey)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 	if id := correlation.ID(ctx); id != "" {
 		req.Header.Set("X-Correlation-Id", id)

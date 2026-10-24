@@ -2,6 +2,8 @@ package authority
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,22 +30,59 @@ func TestUnavailableOwnerFailsClosed(t *testing.T) {
 	}
 }
 
-func TestServiceTokenAndClient(t *testing.T) {
-	if tok, err := ServiceToken("from-env", ""); err != nil || tok != "from-env" {
+func TestCredentialsAndClient(t *testing.T) {
+	if tok, err := StaticCredential("from-env").Token(); err != nil || tok != "from-env" {
 		t.Fatalf("got %q %v", tok, err)
 	}
 	file := filepath.Join(t.TempDir(), "token")
 	if err := os.WriteFile(file, []byte("  from-file\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if tok, err := ServiceToken("", file); err != nil || tok != "from-file" {
+	cred := FileCredential(file)
+	if tok, err := cred.Token(); err != nil || tok != "from-file" {
 		t.Fatalf("a mounted secret is trimmed: %q %v", tok, err)
 	}
-	if _, err := ServiceToken("", filepath.Join(t.TempDir(), "missing")); err == nil {
-		t.Fatal("a missing secret file is an error")
+	// A short-lived service JWT is rotated in place: every call reads the file.
+	if err := os.WriteFile(file, []byte("rotated"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	c := NewClient("http://owner:8080/", "tok", 2*time.Second)
-	if c.BaseURL != "http://owner:8080" || c.Token != "tok" || c.HTTP.Timeout != 2*time.Second {
+	if tok, err := cred.Token(); err != nil || tok != "rotated" {
+		t.Fatalf("rotation not picked up: %q %v", tok, err)
+	}
+	for name, c := range map[string]Credential{"missing file": FileCredential(filepath.Join(t.TempDir(), "missing")), "empty": StaticCredential("")} {
+		if _, err := c.Token(); err == nil {
+			t.Fatalf("%s must be an error", name)
+		}
+	}
+	c := NewClient("http://owner:8080/", StaticCredential("tok"), 2*time.Second)
+	if c.BaseURL != "http://owner:8080" || c.HTTP.Timeout != 2*time.Second {
 		t.Fatalf("client = %+v", c)
+	}
+}
+
+func TestUnreadableCredentialFailsClosedWithoutCalling(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, FileCredential(filepath.Join(t.TempDir(), "missing")), time.Second)
+	_, err := Patients{Client: c}.IsActive(ctx, patient)
+	if !errors.Is(err, out.ErrUnavailable) || called {
+		t.Fatalf("got %v, owner called %v", err, called)
+	}
+}
+
+func TestCredentialForPrefersTheOwnerFile(t *testing.T) {
+	cases := map[string]struct {
+		own, sharedFile, shared string
+		want                    Credential
+	}{
+		"owner file":   {"/own", "/shared", "v", FileCredential("/own")},
+		"shared file":  {"", "/shared", "", FileCredential("/shared")},
+		"shared value": {"", "", "v", StaticCredential("v")},
+	}
+	for name, c := range cases {
+		if got := CredentialFor(c.own, c.sharedFile, c.shared); got != c.want {
+			t.Fatalf("%s: got %#v", name, got)
+		}
 	}
 }

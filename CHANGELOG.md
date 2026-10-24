@@ -42,6 +42,9 @@ as five processes from one image.
 
 ### Fixed
 
+- Each owner gets its own service credential (`<OWNER>_SERVICE_TOKEN_FILE`, required in qa and main) read on every
+  call, so a short-lived service JWT with that owner's audience can be rotated in place; the shared `SERVICE_TOKEN` is for
+  dev. An unreadable credential fails closed without calling the owner.
 - The permission names that give an Administrator clinical access are configuration (`CLINICAL_READ_PERMISSION`,
   `CLINICAL_WRITE_PERMISSION`, default `clinical:read`/`clinical:write`) resolved by the HTTP adapter; the use cases
   receive booleans. Auth has not published its permission catalogue yet: these must match the names it issues.
