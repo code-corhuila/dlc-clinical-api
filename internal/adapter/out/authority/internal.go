@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/adapter/correlation"
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
@@ -30,10 +31,16 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, dst any
 	if len(query) > 0 {
 		path += "?" + query.Encode()
 	}
-	return c.do(ctx, http.MethodGet, path, nil, dst)
+	return c.do(ctx, http.MethodGet, path, "", nil, dst)
 }
 
-func (c *Client) do(ctx context.Context, method, path string, body any, dst any) error {
+// post sends a coordination command; idempotencyKey lets the owner deduplicate
+// retries (Norma 5.3.8).
+func (c *Client) post(ctx context.Context, path, idempotencyKey string, body, dst any) error {
+	return c.do(ctx, http.MethodPost, path, idempotencyKey, body, dst)
+}
+
+func (c *Client) do(ctx context.Context, method, path, idempotencyKey string, body, dst any) error {
 	var payload io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -49,6 +56,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any, dst any)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/json")
 	if id := correlation.ID(ctx); id != "" {
@@ -60,7 +70,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, dst any)
 	}
 	defer res.Body.Close()
 	switch res.StatusCode {
-	case http.StatusOK:
+	case http.StatusOK, http.StatusCreated:
 		dec := json.NewDecoder(res.Body)
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(dst); err != nil {
@@ -69,6 +79,8 @@ func (c *Client) do(ctx context.Context, method, path string, body any, dst any)
 		return nil
 	case http.StatusNotFound:
 		return errOwnerNotFound
+	case http.StatusConflict:
+		return out.ErrOwnerConflict
 	default:
 		return fmt.Errorf("owner answered %d: %w", res.StatusCode, out.ErrUnavailable)
 	}
@@ -126,10 +138,58 @@ func (a Appointments) IsAssigned(ctx context.Context, patientID, dentistID strin
 	return *v.Assigned, nil
 }
 
-// AssignedPatients has no owner contract yet (internal-coordination.yaml only
-// validates one pair), so it fails closed instead of inventing an endpoint.
-func (a Appointments) AssignedPatients(context.Context, string) ([]string, error) {
-	return nil, fmt.Errorf("no owner contract lists a dentist's assigned patients: %w", out.ErrUnavailable)
+// maxAssignedPages bounds the paging of one dentist's assignments
+// (100 per page); a larger answer fails closed instead of looping.
+const maxAssignedPages = 50
+
+// AssignedPatients pages through GET /internal/v1/dentists/{id}/assigned-patients.
+// Every page must belong to the same assignmentsVersion snapshot; an unknown
+// dentist has no patients.
+func (a Appointments) AssignedPatients(ctx context.Context, dentistID string) ([]string, error) {
+	ids := []string{}
+	version := 0
+	for page := 1; ; page++ {
+		var v assignedPatientPage
+		err := a.Client.get(ctx, "/dentists/"+url.PathEscape(dentistID)+"/assigned-patients",
+			url.Values{"page": {strconv.Itoa(page)}, "limit": {"100"}}, &v)
+		if errors.Is(err, errOwnerNotFound) {
+			return []string{}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case v.DentistID != dentistID:
+			return nil, fmt.Errorf("assigned patients of another dentist: %w", out.ErrUnavailable)
+		case version != 0 && v.AssignmentsVersion != version:
+			return nil, fmt.Errorf("assignments changed while paging: %w", out.ErrUnavailable)
+		case v.Meta.TotalPages > maxAssignedPages:
+			return nil, fmt.Errorf("more than %d pages of assigned patients: %w", maxAssignedPages, out.ErrUnavailable)
+		}
+		version = v.AssignmentsVersion
+		for _, p := range v.Data {
+			ids = append(ids, p.PatientID)
+		}
+		if page >= v.Meta.TotalPages {
+			return ids, nil
+		}
+	}
+}
+
+type assignedPatientPage struct {
+	DentistID          string `json:"dentistId"`
+	AssignmentsVersion int    `json:"assignmentsVersion"`
+	Data               []struct {
+		PatientID           string   `json:"patientId"`
+		RelationshipVersion int      `json:"relationshipVersion"`
+		SourceTypes         []string `json:"sourceTypes"`
+	} `json:"data"`
+	Meta struct {
+		Page       int `json:"page"`
+		Limit      int `json:"limit"`
+		Total      int `json:"total"`
+		TotalPages int `json:"totalPages"`
+	} `json:"meta"`
 }
 
 // Sessions adapts POST /internal/v1/sessions/validations (auth-service, scope
@@ -141,7 +201,7 @@ func (s Sessions) IsActive(ctx context.Context, accessToken string) (bool, error
 	var v struct {
 		Active *bool `json:"active"`
 	}
-	err := s.Client.do(ctx, http.MethodPost, "/sessions/validations", map[string]string{"accessToken": accessToken}, &v)
+	err := s.Client.post(ctx, "/sessions/validations", "", map[string]string{"accessToken": accessToken}, &v)
 	if errors.Is(err, errOwnerNotFound) {
 		return false, fmt.Errorf("session validation not found: %w", out.ErrUnavailable)
 	}
