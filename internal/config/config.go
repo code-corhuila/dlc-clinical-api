@@ -101,8 +101,18 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	cfg.ClinicTimezone = loc
-	if cfg.AuthURL == "" && cfg.AppEnv != "dev" {
-		return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
+	if cfg.AppEnv != "dev" {
+		if cfg.AuthURL == "" {
+			return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
+		}
+		// Every write depends on these owners; without one the service would
+		// look healthy and fail closed on every request.
+		for key, url := range map[string]string{"PATIENTS_INTERNAL_URL": cfg.PatientsURL,
+			"APPOINTMENTS_INTERNAL_URL": cfg.AppointmentsURL, "BILLING_INTERNAL_URL": cfg.BillingURL} {
+			if url == "" {
+				return Config{}, fmt.Errorf("%s is required in %s", key, cfg.AppEnv)
+			}
+		}
 	}
 	return cfg, nil
 }

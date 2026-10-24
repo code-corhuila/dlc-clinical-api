@@ -115,3 +115,19 @@ func TestMongoPingBacksReadiness(t *testing.T) {
 		t.Fatalf("a reachable primary must answer: %v", err)
 	}
 }
+
+// A database without the dlc-clinical-db schema would accept duplicate records
+// and closures: every process refuses it at startup.
+func TestOpenMongoRefusesAnUnmigratedDatabase(t *testing.T) {
+	uri := os.Getenv("TEST_MONGO_URI")
+	if uri == "" {
+		t.Skip("TEST_MONGO_URI not set; integration test skipped")
+	}
+	_, err := OpenMongo(context.Background(), MongoOptions{URI: uri, Database: "clinical_unmigrated", MaxPoolSize: 2, Timeout: 5 * time.Second})
+	if !errors.Is(err, ErrSchemaNotMigrated) {
+		t.Fatalf("an unmigrated database must be refused, got %v", err)
+	}
+	if got := newTestMongo(t); got == nil {
+		t.Fatal("the migrated database must be accepted")
+	}
+}
