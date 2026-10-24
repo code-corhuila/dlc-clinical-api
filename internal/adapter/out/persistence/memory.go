@@ -28,6 +28,8 @@ type Memory struct {
 
 	intents    map[string]out.WriteIntent
 	admissions map[out.EncounterKey]*admission
+
+	views *analytics // HU-CLN-003 projections, created on first use
 }
 
 // NewMemory returns an empty repository.
