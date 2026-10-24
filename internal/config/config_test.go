@@ -42,6 +42,10 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 		MongoTimeout:      5 * time.Second,
 		InternalTimeout:   3 * time.Second,
 	}
+	if cfg.ClinicTimezone == nil || cfg.ClinicTimezone.String() != "America/Bogota" {
+		t.Fatalf("clinic timezone = %v", cfg.ClinicTimezone)
+	}
+	want.ClinicTimezone = cfg.ClinicTimezone
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)
 	}
@@ -49,12 +53,13 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 
 func TestLoadReadsOverrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
-		"HTTP_ADDR":         ":9090",
-		"APP_ENV":           "qa",
-		"AUTH_INTERNAL_URL": "http://auth",
-		"SERVICE_TOKEN":     "svc",
-		"SHUTDOWN_TIMEOUT":  "30s",
-		"WRITE_TIMEOUT":     "20s",
+		"HTTP_ADDR":             ":9090",
+		"APP_ENV":               "qa",
+		"AUTH_INTERNAL_URL":     "http://auth",
+		"SERVICE_TOKEN":         "svc",
+		"SHUTDOWN_TIMEOUT":      "30s",
+		"PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing",
+		"WRITE_TIMEOUT": "20s",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -145,6 +150,28 @@ func TestLoadInternalOwners(t *testing.T) {
 	} {
 		if _, err := Load(env(bad)); err == nil {
 			t.Fatalf("%s must be rejected", name)
+		}
+	}
+}
+
+// Outside dev every owner is required: a missing one would start a "healthy"
+// service that answers 503 to every write.
+func TestLoadRequiresEveryOwnerOutsideDev(t *testing.T) {
+	all := map[string]string{"APP_ENV": "qa", "SERVICE_TOKEN": "svc", "AUTH_INTERNAL_URL": "http://auth",
+		"PATIENTS_INTERNAL_URL": "http://patients", "APPOINTMENTS_INTERNAL_URL": "http://appointments", "BILLING_INTERNAL_URL": "http://billing"}
+	if _, err := Load(env(all)); err != nil {
+		t.Fatalf("complete qa settings rejected: %v", err)
+	}
+	for _, key := range []string{"PATIENTS_INTERNAL_URL", "APPOINTMENTS_INTERNAL_URL", "BILLING_INTERNAL_URL"} {
+		partial := map[string]string{}
+		for k, v := range all {
+			if k != key {
+				partial[k] = v
+			}
+		}
+		_, err := Load(env(partial))
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Fatalf("qa without %s must fail naming it, got %v", key, err)
 		}
 	}
 }

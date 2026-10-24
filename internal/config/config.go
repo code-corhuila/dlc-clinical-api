@@ -33,7 +33,8 @@ type Config struct {
 	BillingURL        string        // billing-service /internal/v1 base; empty fails closed
 	ServiceToken      string        // service credential issued by identity, never versioned
 	ServiceTokenFile  string
-	InternalTimeout   time.Duration // bound of each owner call
+	InternalTimeout   time.Duration  // bound of each owner call
+	ClinicTimezone    *time.Location // calendar of the HU-CLN-003 dashboard
 }
 
 var environments = map[string]bool{"dev": true, "qa": true, "main": true}
@@ -95,8 +96,23 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if err := loadOwners(lookup, &cfg); err != nil {
 		return Config{}, err
 	}
-	if cfg.AuthURL == "" && cfg.AppEnv != "dev" {
-		return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
+	loc, err := loadClinicTimezone(lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ClinicTimezone = loc
+	if cfg.AppEnv != "dev" {
+		if cfg.AuthURL == "" {
+			return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
+		}
+		// Every write depends on these owners; without one the service would
+		// look healthy and fail closed on every request.
+		for key, url := range map[string]string{"PATIENTS_INTERNAL_URL": cfg.PatientsURL,
+			"APPOINTMENTS_INTERNAL_URL": cfg.AppointmentsURL, "BILLING_INTERNAL_URL": cfg.BillingURL} {
+			if url == "" {
+				return Config{}, fmt.Errorf("%s is required in %s", key, cfg.AppEnv)
+			}
+		}
 	}
 	return cfg, nil
 }

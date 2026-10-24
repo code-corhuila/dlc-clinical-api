@@ -10,7 +10,8 @@ tagged `v<version>` after the merge. Nothing is merged between permanent branche
 ## [Unreleased]
 
 MVP 3: the Clinical API implements every operation of `clinical-service.yaml` for HU-CLN-001, HU-CLN-002 and HU-XCT-001, with
-the ADR-014/ADR-015 closure model and the ADR-017 write protocol. It runs as four processes from one image.
+the ADR-014/ADR-015 closure model and the ADR-017 write protocol, and the HU-CLN-003 analytics dashboard (ADR-006). It runs
+as five processes from one image.
 
 ### Added
 
@@ -34,14 +35,29 @@ the ADR-014/ADR-015 closure model and the ADR-017 write protocol. It runs as fou
 - ADR-017 write protocol: write intents and encounter admissions, writes of patient clinical data under the activity guard,
   encounter admission and freeze around the declaration, intent fencing, and `clinical-intent-reconciler` for outcomes left
   unknown by a lost answer or a crash (#48–#54).
+- MongoDB reached through the `clinical-data` network as `clinical_runtime` ([#56](https://github.com/code-corhuila/dlc-clinical-api/pull/56)).
+- HU-CLN-003: projections from `Appointment*`, `PaymentRecorded` and `ClinicalCareCompleted` consumed by
+  `clinical-analytics-consumer` on its own `clinical.analytics` queue, stored in MongoDB with exact COP, and the role-scoped
+  `GET /api/v1/clinical-analytics/dashboard` in `CLINIC_TIMEZONE` ([#60](https://github.com/code-corhuila/dlc-clinical-api/pull/60)–[#64](https://github.com/code-corhuila/dlc-clinical-api/pull/64)).
+
+### Fixed
+
+- Outside `dev` every owner URL is required, and every process refuses a database below the `schema_info` version it
+  requires, instead of starting healthy and answering 503 or accepting duplicates.
+- `scripts/integration-test.sh` runs the MongoDB and RabbitMQ integration tests against disposable, migrated instances;
+  plain `go test ./...` skips them.
+- Failing events are dead-lettered after the delivery limit on RabbitMQ 4 ([#58](https://github.com/code-corhuila/dlc-clinical-api/pull/58)).
+- The image builds the analytics consumer again ([#65](https://github.com/code-corhuila/dlc-clinical-api/pull/65)).
+- An unroutable event is retried with backoff instead of failing at once, so deploying Clinical before its consumers no longer
+  loses events ([#66](https://github.com/code-corhuila/dlc-clinical-api/pull/66)).
+- Procedure completion checks `expectedVersion` against the Treatment version, the only version `clinical-service.yaml`
+  exposes, so a client that reads the treatment can complete its procedures.
 
 ### Known limits
 
-- HU-CLN-003 is not implemented: its indicators are not approved yet.
-- Verified with fake owner contracts and a MongoDB 8.0 replica set; not yet verified against the real Auth, Patients,
-  Appointments and Billing services, nor against `dlc-clinical-portal`, whose `completeProcedure` still expects a `CareClosure`
-  instead of the ADR-014 `ProcedureCompletion`.
-- MongoDB provisioning, identities, TLS and backups belong to `dlc-infra-mongo` and are still pending there.
+- Verified end to end with `dlc-infra-mongo`, `dlc-clinical-db`, RabbitMQ 4, `dlc-clinical-portal` and `dlc-front`, but with
+  fake owner contracts and a local stand-in for `dlc-api-gateway`; not yet verified against the real Auth, Patients,
+  Appointments and Billing services.
 
 ## [2.0.0] - 2026-10-14
 

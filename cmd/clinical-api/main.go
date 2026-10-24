@@ -81,6 +81,9 @@ func run(logger *slog.Logger) error {
 		Clock: system.Clock{}, IDs: system.UUIDs{},
 	}
 	routes = append(routes, httpapi.CareCompletionRoutes(careCompletions)...)
+	// HU-CLN-003: read-only dashboard over the analytics projections.
+	analytics := &usecase.DashboardService{Analytics: store, Clock: system.Clock{}, Location: cfg.ClinicTimezone}
+	routes = append(routes, httpapi.AnalyticsRoutes(analytics)...)
 	router := httpapi.NewRouter(httpapi.Options{
 		Verifier: &httpapi.Verifier{Key: key, Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, Now: time.Now, Sessions: own.sessions},
 		Logger:   logger,
