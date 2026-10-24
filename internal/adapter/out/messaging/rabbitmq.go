@@ -52,8 +52,8 @@ func NewPublisher(url, exchange string, timeout time.Duration) (*Publisher, erro
 func (p *Publisher) Close() error { return p.conn.Close() }
 
 // Publish sends a persistent, mandatory message and returns once the broker
-// confirms it. An unroutable message is out.ErrPermanentPublish; a nack, a
-// closed channel or a timeout are transient and retried by the relay.
+// confirms it. An unroutable message (usually a consumer not deployed yet), a
+// nack, a closed channel or a timeout are transient and retried by the relay.
 func (p *Publisher) Publish(ctx context.Context, e out.Envelope) error {
 	body, err := json.Marshal(e)
 	if err != nil {
@@ -78,7 +78,7 @@ func (p *Publisher) Publish(ctx context.Context, e out.Envelope) error {
 	select {
 	case r := <-p.returns:
 		if r.MessageId == e.EventID {
-			return fmt.Errorf("no route for %s (%s): %w", e.EventType, r.ReplyText, out.ErrPermanentPublish)
+			return fmt.Errorf("no route for %s (%s)", e.EventType, r.ReplyText)
 		}
 	default:
 	}

@@ -69,10 +69,12 @@ func TestPublisherDeliversAConfirmedPersistentEnvelope(t *testing.T) {
 	}
 }
 
-func TestPublisherReportsUnroutableAsPermanent(t *testing.T) {
+// A missing route usually means a consumer not deployed yet: the relay
+// retries it with backoff instead of losing the event (ADR-010).
+func TestPublisherReportsUnroutableAsTransient(t *testing.T) {
 	p, _ := newTestPublisher(t)
 	err := p.Publish(context.Background(), envelope("ev-2", "NobodyListensToThis"))
-	if !errors.Is(err, out.ErrPermanentPublish) {
-		t.Fatalf("an unroutable event must be permanent, got %v", err)
+	if err == nil || errors.Is(err, out.ErrPermanentPublish) {
+		t.Fatalf("an unroutable event must be retryable, got %v", err)
 	}
 }

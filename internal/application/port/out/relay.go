@@ -7,7 +7,7 @@ import (
 )
 
 // ErrPermanentPublish marks a publication a retry cannot fix (for example an
-// unroutable message); the event goes straight to FAILED.
+// envelope that cannot be encoded); the event goes straight to FAILED.
 var ErrPermanentPublish = errors.New("permanent publish failure")
 
 // Envelope is the published form of an event (07-api/contracts/events).
