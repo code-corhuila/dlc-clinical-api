@@ -33,7 +33,8 @@ type Config struct {
 	BillingURL        string        // billing-service /internal/v1 base; empty fails closed
 	ServiceToken      string        // service credential issued by identity, never versioned
 	ServiceTokenFile  string
-	InternalTimeout   time.Duration // bound of each owner call
+	InternalTimeout   time.Duration  // bound of each owner call
+	ClinicTimezone    *time.Location // calendar of the HU-CLN-003 dashboard
 }
 
 var environments = map[string]bool{"dev": true, "qa": true, "main": true}
@@ -95,6 +96,11 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	if err := loadOwners(lookup, &cfg); err != nil {
 		return Config{}, err
 	}
+	loc, err := loadClinicTimezone(lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ClinicTimezone = loc
 	if cfg.AuthURL == "" && cfg.AppEnv != "dev" {
 		return Config{}, fmt.Errorf("AUTH_INTERNAL_URL is required in %s: sessions must be checked for revocation", cfg.AppEnv)
 	}

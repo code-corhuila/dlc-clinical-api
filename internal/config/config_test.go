@@ -42,6 +42,10 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 		MongoTimeout:      5 * time.Second,
 		InternalTimeout:   3 * time.Second,
 	}
+	if cfg.ClinicTimezone == nil || cfg.ClinicTimezone.String() != "America/Bogota" {
+		t.Fatalf("clinic timezone = %v", cfg.ClinicTimezone)
+	}
+	want.ClinicTimezone = cfg.ClinicTimezone
 	if cfg != want {
 		t.Fatalf("got %+v, want %+v", cfg, want)
 	}
