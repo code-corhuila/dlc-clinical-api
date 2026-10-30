@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"regexp"
 	"slices"
 	"testing"
 
@@ -116,5 +117,41 @@ func TestManualChargeFreezeAndRelease(t *testing.T) {
 		if err := (Billing{Client: client}).ReleaseManualChargeFreeze(ctx, record, consult, operation); !errors.Is(err, want) {
 			t.Fatalf("release %d: got %v", status, err)
 		}
+	}
+}
+
+// _shared.yaml declares Idempotency-Key as format uuid: a strict owner rejects
+// anything else. Retries of the same step must reuse the same key.
+func TestOwnerIdempotencyKeysAreUUIDsStableAcrossRetries(t *testing.T) {
+	uuid := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	guard := `{"id":"` + guardID + `","patientId":"` + patient + `","operationId":"` + operation + `","state":"OPEN","token":"p"}`
+	resolved := `{"id":"` + guardID + `","patientId":"` + patient + `","operationId":"` + operation + `","state":"FINALIZED"}`
+	settled := `{"operationId":"` + operation + `","freezeState":"FROZEN","clinicalRecordId":"` + record + `","consultationId":"` + consult + `","settled":true}`
+	released := `{"operationId":"` + operation + `","freezeState":"OPEN","clinicalRecordId":"` + record + `","consultationId":"` + consult + `","settled":true}`
+	keys := func(answer string, call func(c *Client)) []string {
+		c, got := capture(t, 200, answer)
+		call(c)
+		call(c)
+		var k []string
+		for _, r := range *got {
+			if !uuid.MatchString(r.idempotencyKey) {
+				t.Fatalf("Idempotency-Key %q of %s is not a UUID", r.idempotencyKey, r.path)
+			}
+			k = append(k, r.idempotencyKey)
+		}
+		return k
+	}
+	keys(guard, func(c *Client) { _, _ = PatientGates{Client: c}.AcquireActivityGuard(ctx, patient, operation) })
+	finalized := keys(resolved, func(c *Client) { _ = PatientGates{Client: c}.ResolveGuard(ctx, guardID, "p", out.GuardFinalized) })
+	aborted := keys(resolved, func(c *Client) { _ = PatientGates{Client: c}.ResolveGuard(ctx, guardID, "p", out.GuardAborted) })
+	freeze := keys(settled, func(c *Client) { _, _ = Billing{Client: c}.FreezeManualCharges(ctx, record, consult, operation) })
+	release := keys(released, func(c *Client) { _ = Billing{Client: c}.ReleaseManualChargeFreeze(ctx, record, consult, operation) })
+	for name, k := range map[string][]string{"resolution": finalized, "freeze": freeze, "release": release} {
+		if k[0] != k[1] {
+			t.Fatalf("%s retries must reuse the key: %v", name, k)
+		}
+	}
+	if finalized[0] == aborted[0] || freeze[0] == release[0] {
+		t.Fatal("different steps must not share a key")
 	}
 }
