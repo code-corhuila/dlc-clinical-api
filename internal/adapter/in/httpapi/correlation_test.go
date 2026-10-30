@@ -9,13 +9,25 @@ import (
 	"testing"
 )
 
+const sagaID = "5a9a1d2e-3b4c-4d5e-8f60-718293a4b5c6"
+
 func TestCorrelationIdIsEchoedAndUsedAsTraceID(t *testing.T) {
-	rec := do(testRouter(nil), http.MethodGet, "/api/v1/nope", validToken(t), nil, map[string]string{"X-Correlation-Id": "e2e-saga-1"})
-	if got := rec.Header().Get("X-Correlation-Id"); got != "e2e-saga-1" {
+	rec := do(testRouter(nil), http.MethodGet, "/api/v1/nope", validToken(t), nil, map[string]string{"X-Correlation-Id": sagaID})
+	if got := rec.Header().Get("X-Correlation-Id"); got != sagaID {
 		t.Fatalf("response header = %q", got)
 	}
-	if e := decodeEnvelope(t, rec); e.TraceID != "e2e-saga-1" {
+	if e := decodeEnvelope(t, rec); e.TraceID != sagaID {
 		t.Fatalf("traceId = %q", e.TraceID)
+	}
+}
+
+// The id travels into every event's metadata.correlationId, which the event
+// schemas declare as format uuid: any other value is replaced, not echoed.
+func TestNonUUIDCorrelationIdIsReplaced(t *testing.T) {
+	rec := do(testRouter(nil), http.MethodGet, "/api/v1/nope", validToken(t), nil, map[string]string{"X-Correlation-Id": "e2e-saga-1"})
+	got := rec.Header().Get("X-Correlation-Id")
+	if got == "e2e-saga-1" || len(got) != 36 {
+		t.Fatalf("a non-UUID id must be replaced by a generated UUID, got %q", got)
 	}
 }
 
@@ -39,7 +51,7 @@ func TestUnsafeCorrelationIdIsReplaced(t *testing.T) {
 
 func TestEveryLogLineIsJSONWithCorrelationId(t *testing.T) {
 	var logs bytes.Buffer
-	do(testRouter(&logs, panicRoute), http.MethodGet, "/api/v1/panics", validToken(t), nil, map[string]string{"X-Correlation-Id": "corr-42"})
+	do(testRouter(&logs, panicRoute), http.MethodGet, "/api/v1/panics", validToken(t), nil, map[string]string{"X-Correlation-Id": "42424242-4242-4242-8242-424242424242"})
 
 	lines := 0
 	sc := bufio.NewScanner(&logs)
@@ -49,7 +61,7 @@ func TestEveryLogLineIsJSONWithCorrelationId(t *testing.T) {
 		if err := json.Unmarshal(sc.Bytes(), &line); err != nil {
 			t.Fatalf("log line is not JSON: %s", sc.Text())
 		}
-		if line["correlationId"] != "corr-42" {
+		if line["correlationId"] != "42424242-4242-4242-8242-424242424242" {
 			t.Fatalf("log line without correlationId: %s", sc.Text())
 		}
 	}
