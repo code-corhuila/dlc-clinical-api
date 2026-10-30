@@ -42,7 +42,7 @@ func (e *entriesEnv) key() string {
 }
 
 func (e *entriesEnv) send(t *testing.T, path, key, body string) (*httptest.ResponseRecorder, map[string]any) {
-	headers := map[string]string{"X-Correlation-Id": "corr-entries"}
+	headers := map[string]string{"X-Correlation-Id": "c0c0c0c0-0000-4000-8000-0000000000e1"}
 	if key != "" {
 		headers["Idempotency-Key"] = key
 	}
@@ -70,7 +70,7 @@ func TestRecordConsultationAndDiagnosis(t *testing.T) {
 		t.Fatalf("diagnosis = %d %v", rec.Code, diag)
 	}
 	events := e.store.Outbox()
-	if len(events) != 2 || events[0].CorrelationID != "corr-entries" || events[1].EventType != "DiagnosisRecorded" {
+	if len(events) != 2 || events[0].CorrelationID != "c0c0c0c0-0000-4000-8000-0000000000e1" || events[1].EventType != "DiagnosisRecorded" {
 		t.Fatalf("outbox = %+v", events)
 	}
 }
