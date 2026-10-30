@@ -90,9 +90,10 @@ What Clinical needs from each owner to run in `qa`/`main`; everything else is al
 | Patients | `/internal/v1/patients/{id}/validation` | `PATIENTS_INTERNAL_URL`, `PATIENTS_SERVICE_TOKEN_FILE` |
 | Appointments | Assignments, assigned-patient list, encounter status and the patient gate of `internal-coordination.yaml`; `Appointment*` events | `APPOINTMENTS_INTERNAL_URL`, `APPOINTMENTS_SERVICE_TOKEN_FILE` |
 | Billing | Manual-charge freeze and release; `EncounterChargesCompleted` and `PaymentRecorded` events | `BILLING_INTERNAL_URL`, `BILLING_SERVICE_TOKEN_FILE` |
-| Service identity | One short-lived service JWT per owner audience, written to its file (read on every call) | `*_SERVICE_TOKEN_FILE` |
+| Service identity | One short-lived service JWT per owner audience, written to its file (read on every call), with the scopes of `internal-coordination.yaml`: Auth `identity:validate`; Patients `patients:validate`; Appointments `assignments:read`, `appointments:encounter-status:read` and `patient-gates:coordinate`; Billing `billing:encounter-freeze:write` | `*_SERVICE_TOKEN_FILE` |
 | Gateway | Routes `/api/v1/clinical-records`, `/clinical-entries`, `/treatments`, `/procedures`, `/care-closures` and `/clinical-analytics` to `clinical-api:8080`, keeping the `/api/v1` prefix | — |
 | RabbitMQ | A broker and credentials; Clinical declares `clinical.events`, the exchanges it reads and its own queues idempotently | `RABBITMQ_URL` |
+| `dlc-infra-mongo` | The stage engine, `clinical_runtime` and its password file, and the stage CA in qa and main | `MONGO_URI`, `MONGO_PASSWORD_FILE` |
 
 ## Layout (Anexo C, Go)
 

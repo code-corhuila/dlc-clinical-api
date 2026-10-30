@@ -4,7 +4,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -206,7 +209,49 @@ func loadMongo(lookup func(string) (string, bool), cfg *Config) error {
 		}
 		cfg.MongoTimeout = d
 	}
+	if file, ok := lookup("MONGO_PASSWORD_FILE"); ok && file != "" {
+		user := "clinical_runtime"
+		if v, ok := lookup("MONGO_USERNAME"); ok && v != "" {
+			user = v
+		}
+		uri, err := withPasswordFile(cfg.MongoURI, user, file, cfg.MongoDatabase)
+		if err != nil {
+			return err
+		}
+		cfg.MongoURI = uri
+	}
 	return nil
+}
+
+// withPasswordFile puts the identity and the password read from its secret
+// file into the URI, authenticating against the Clinical database. Errors
+// never quote the secret or the resulting URI.
+func withPasswordFile(uri, user, file, database string) (string, error) {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return "", fmt.Errorf("MONGO_PASSWORD_FILE cannot be read")
+	}
+	password := strings.TrimSpace(string(raw))
+	if password == "" {
+		return "", fmt.Errorf("MONGO_PASSWORD_FILE is empty")
+	}
+	scheme, rest, ok := strings.Cut(uri, "://")
+	if !ok {
+		return "", fmt.Errorf("MONGO_URI must be a mongodb:// or mongodb+srv:// URI")
+	}
+	hosts, tail, _ := strings.Cut(rest, "/")
+	if strings.Contains(hosts, "@") {
+		return "", fmt.Errorf("MONGO_URI must not carry credentials when MONGO_PASSWORD_FILE is set")
+	}
+	path, query, _ := strings.Cut(tail, "?")
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return "", fmt.Errorf("MONGO_URI has an invalid query")
+	}
+	if !values.Has("authSource") {
+		query = strings.TrimPrefix(query+"&authSource="+url.QueryEscape(database), "&")
+	}
+	return scheme + "://" + url.UserPassword(user, password).String() + "@" + hosts + "/" + path + "?" + query, nil
 }
 
 // loadOwners reads the optional private owner contracts. When any owner is
