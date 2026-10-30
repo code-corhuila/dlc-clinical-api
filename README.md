@@ -70,9 +70,12 @@ next run when the broker drops the connection; the consumers exit and are restar
 ### Re-sending FAILED events
 
 An outbox event is marked `FAILED` only after `RELAY_MAX_ATTEMPTS` (about half an hour of broker
-outage with the defaults). Once the cause is fixed, an operator with the migration identity puts
-them back in the queue; the relay publishes them on its next run and every consumer deduplicates
-by `eventId`:
+outage with the defaults). An undeliverable `ClinicalCareCompleted` also turns its closure into
+`CLOSURE_FAILED` with the reason, in the same transaction; once the cause is fixed, the Dentist or a
+clinically authorized Administrator resumes it with `POST /api/v1/care-closures/{id}/retries`, which
+re-queues the original event. For other events, an operator with the migration identity puts them
+back in the queue; the relay publishes them on its next run and every consumer deduplicates by
+`eventId`:
 
 ```js
 db.getSiblingDB("clinical").outbox_events.updateMany(

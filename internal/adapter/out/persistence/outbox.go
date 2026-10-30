@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/code-corhuila/dlc-clinical-api/internal/application/port/out"
+	"github.com/code-corhuila/dlc-clinical-api/internal/domain/model"
 )
 
 var _ out.OutboxStore = (*Mongo)(nil)
@@ -73,4 +74,25 @@ func (m *Mongo) Reschedule(ctx context.Context, eventID string, attempts int, ne
 func (m *Mongo) MarkFailed(ctx context.Context, eventID string, attempts int, reason string) error {
 	return m.setOutbox(ctx, eventID, bson.D{{Key: "status", Value: "FAILED"}, {Key: "attempts", Value: attempts}, {Key: "failureReason", Value: reason}},
 		bson.D{{Key: "nextAttemptAt", Value: ""}})
+}
+
+// MarkDeclarationFailed fails the event and its encounter closure in one
+// transaction; a completed closure is left as it is.
+func (m *Mongo) MarkDeclarationFailed(ctx context.Context, eventID string, attempts int, reason, recordID, consultationID string, at time.Time) error {
+	closureReason := []rune("ClinicalCareCompleted could not be delivered: " + reason)
+	if len(closureReason) > 500 { // care_closures validator
+		closureReason = closureReason[:500]
+	}
+	return m.transact(ctx, func(tx context.Context) error {
+		if err := m.MarkFailed(tx, eventID, attempts, reason); err != nil {
+			return err
+		}
+		_, err := m.db.Collection("care_closures").UpdateOne(tx,
+			bson.D{{Key: "clinicalRecordId", Value: recordID}, {Key: "consultationId", Value: consultationID},
+				{Key: "status", Value: bson.D{{Key: "$ne", Value: string(model.ClosureCompleted)}}}},
+			bson.D{{Key: "$set", Value: bson.D{{Key: "status", Value: string(model.ClosureFailed)},
+				{Key: "failureReason", Value: string(closureReason)}, {Key: "updatedAt", Value: at}}},
+				{Key: "$inc", Value: bson.D{{Key: "version", Value: 1}}}})
+		return err
+	})
 }

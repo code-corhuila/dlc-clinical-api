@@ -3,6 +3,7 @@ package persistence
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,5 +118,60 @@ func TestMongoRetryClosureRetransmitsTheOriginalEvent(t *testing.T) {
 	}
 	if err := m.RetryClosure(ctx, resumed, 1, entryKey("key-retry-02", "cc-1", at)); !errors.Is(err, out.ErrVersionConflict) {
 		t.Fatalf("stale retry: got %v", err)
+	}
+}
+
+// The relay gives up on a declaration: its closure becomes CLOSURE_FAILED with
+// a reason the validator accepts, and the API retry resumes it with the same event.
+func TestMongoUndeliverableDeclarationFailsItsClosure(t *testing.T) {
+	m := newTestMongo(t)
+	for _, c := range []string{"care_closures", "outbox_events"} {
+		if _, err := m.db.Collection(c).DeleteMany(ctx, bson.D{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC)
+	_ = m.CreateRecord(ctx, rec("r-1", "p1", at), entryKey("key-rec-02", "r-1", at))
+	c := closure("cc-1", "r-1", "c-1", 2, at)
+	ev := out.OutboxEvent{EventID: "ev-decl", EventType: "ClinicalCareCompleted", EventVersion: 1, AggregateID: "r-1", AggregateType: "ClinicalRecord",
+		ActorID: "d", Payload: map[string]any{"consultationId": "c-1"}, OccurredAt: at}
+	if err := m.DeclareCareCompletion(ctx, c, 1, entryKey("key-decl-02", "cc-1", at), []out.OutboxEvent{ev}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.MarkDeclarationFailed(ctx, "ev-decl", 20, strings.Repeat("x", 500), "r-1", "c-1", at.Add(time.Hour)); err != nil {
+		t.Fatalf("rejected by the real validators: %v", err)
+	}
+	failed, _ := m.GetClosure(ctx, "cc-1")
+	if failed.Status != model.ClosureFailed || failed.Version != 2 || !strings.HasPrefix(failed.FailureReason, "ClinicalCareCompleted could not be delivered") ||
+		len([]rune(failed.FailureReason)) > 500 {
+		t.Fatalf("closure = %+v", failed)
+	}
+	var row bson.M
+	_ = m.db.Collection("outbox_events").FindOne(ctx, bson.D{{Key: "_id", Value: "ev-decl"}}).Decode(&row)
+	if row["status"] != "FAILED" {
+		t.Fatalf("event = %v", row)
+	}
+	resumed := failed
+	if err := resumed.Retry(2, at.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RetryClosure(ctx, resumed, 2, entryKey("key-retry-03", "cc-1", at)); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.db.Collection("outbox_events").FindOne(ctx, bson.D{{Key: "_id", Value: "ev-decl"}}).Decode(&row)
+	if got, _ := m.GetClosure(ctx, "cc-1"); got.Status != model.ClosureAwaitingFinalization || got.FailureReason != "" || row["status"] != "PENDING" {
+		t.Fatalf("retry must resume the closure and re-queue its event: %+v %v", got, row)
+	}
+
+	// A completed closure is never failed afterwards.
+	if _, err := m.db.Collection("care_closures").UpdateOne(ctx, bson.D{{Key: "_id", Value: "cc-1"}},
+		bson.D{{Key: "$set", Value: bson.D{{Key: "status", Value: string(model.ClosureCompleted)}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.MarkDeclarationFailed(ctx, "ev-decl", 20, "late", "r-1", "c-1", at.Add(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.GetClosure(ctx, "cc-1"); got.Status != model.ClosureCompleted {
+		t.Fatalf("a completed closure changed: %+v", got)
 	}
 }

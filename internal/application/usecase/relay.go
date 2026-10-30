@@ -50,7 +50,7 @@ func (s *RelayService) RunOnce(ctx context.Context) (RunReport, error) {
 			}
 			report.Published++
 		case errors.Is(err, out.ErrPermanentPublish) || attempts >= s.MaxAttempts:
-			if err := s.Outbox.MarkFailed(ctx, p.Event.EventID, attempts, safeReason(err)); err != nil {
+			if err := s.markFailed(ctx, p.Event, attempts, safeReason(err), now); err != nil {
 				return report, err
 			}
 			report.Failed++
@@ -62,6 +62,17 @@ func (s *RelayService) RunOnce(ctx context.Context) (RunReport, error) {
 		}
 	}
 	return report, nil
+}
+
+// markFailed gives up on one event. A declaration that cannot be delivered is
+// a persistent failure of its closure, made visible and retryable with it.
+func (s *RelayService) markFailed(ctx context.Context, e out.OutboxEvent, attempts int, reason string, at time.Time) error {
+	if e.EventType == "ClinicalCareCompleted" {
+		if consultationID, ok := e.Payload["consultationId"].(string); ok && consultationID != "" {
+			return s.Outbox.MarkDeclarationFailed(ctx, e.EventID, attempts, reason, e.AggregateID, consultationID, at)
+		}
+	}
+	return s.Outbox.MarkFailed(ctx, e.EventID, attempts, reason)
 }
 
 // backoff is full jitter: a random wait between 0 and min(MaxDelay, BaseDelay*2^(attempt-1)).

@@ -16,6 +16,7 @@ type fakeOutbox struct {
 	published   []string
 	rescheduled map[string]time.Time
 	failed      map[string]string
+	closures    map[string]string // eventID -> record/consultation of the failed closure
 }
 
 func (f *fakeOutbox) Due(_ context.Context, _ time.Time, limit int) ([]out.PendingEvent, error) {
@@ -32,6 +33,11 @@ func (f *fakeOutbox) Reschedule(_ context.Context, id string, _ int, next time.T
 }
 func (f *fakeOutbox) MarkFailed(_ context.Context, id string, _ int, reason string) error {
 	f.failed[id] = reason
+	return nil
+}
+func (f *fakeOutbox) MarkDeclarationFailed(_ context.Context, id string, _ int, reason, recordID, consultationID string, _ time.Time) error {
+	f.failed[id] = reason
+	f.closures[id] = recordID + "/" + consultationID
 	return nil
 }
 
@@ -58,7 +64,7 @@ func pending(id string, attempts int) out.PendingEvent {
 }
 
 func newRelay(due []out.PendingEvent, failures map[string]error) (*fakeOutbox, *fakePublisher, *RelayService) {
-	store := &fakeOutbox{due: due, rescheduled: map[string]time.Time{}, failed: map[string]string{}}
+	store := &fakeOutbox{due: due, rescheduled: map[string]time.Time{}, failed: map[string]string{}, closures: map[string]string{}}
 	pub := &fakePublisher{failures: failures}
 	return store, pub, &RelayService{Outbox: store, Publisher: pub, Clock: staticClock{t0}, Random: func() float64 { return 0.5 },
 		BatchSize: 3, MaxAttempts: 5, BaseDelay: time.Second, MaxDelay: time.Minute}
@@ -133,3 +139,21 @@ func TestRelayStopsWhenTheRunTimeIsOver(t *testing.T) {
 type staticClock struct{ t time.Time }
 
 func (c staticClock) Now() time.Time { return c.t }
+
+// An undeliverable declaration is a persistent failure of its closure, which
+// must become CLOSURE_FAILED with the reason so it is visible and can be
+// retried (entities-and-rules.md, ADR-014 point 5); other events only fail.
+func TestRelayFailsTheClosureOfAnUndeliverableDeclaration(t *testing.T) {
+	decl := pending("ev-decl", 4)
+	decl.Event.EventType, decl.Event.AggregateID, decl.Event.AggregateType = "ClinicalCareCompleted", "r-1", "ClinicalRecord"
+	decl.Event.Payload = map[string]any{"clinicalRecordId": "r-1", "consultationId": "c-1"}
+	store, _, relay := newRelay([]out.PendingEvent{decl, pending("ev-proc", 4)},
+		map[string]error{"ev-decl": errors.New("no route"), "ev-proc": errors.New("no route")})
+	report, err := relay.RunOnce(context.Background())
+	if err != nil || report.Failed != 2 || store.closures["ev-decl"] != "r-1/c-1" || store.failed["ev-proc"] == "" {
+		t.Fatalf("report %+v store %+v %v", report, store, err)
+	}
+	if _, closure := store.closures["ev-proc"]; closure {
+		t.Fatal("only the declaration fails a closure")
+	}
+}
