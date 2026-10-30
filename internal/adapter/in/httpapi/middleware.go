@@ -32,12 +32,13 @@ func loggerFrom(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
-// withCorrelation reuses a safe X-Correlation-Id or generates one, returns it
-// and binds a logger that writes it on every line (Norma 5.3.9).
+// withCorrelation reuses a UUID X-Correlation-Id or generates one, returns it
+// and binds a logger that writes it on every line (Norma 5.3.9). Only a UUID is
+// reused because the id becomes metadata.correlationId of the events (format uuid).
 func withCorrelation(base *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(correlationHeader)
-		if !safeCorrelation(id) {
+		if !isUUID(id) {
 			id = newUUID()
 		}
 		w.Header().Set(correlationHeader, id)
@@ -45,18 +46,6 @@ func withCorrelation(base *slog.Logger, next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, loggerKey, base.With("correlationId", id))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-func safeCorrelation(id string) bool {
-	if id == "" || len(id) > 128 {
-		return false
-	}
-	for _, c := range id {
-		if c < 0x21 || c > 0x7e {
-			return false
-		}
-	}
-	return true
 }
 
 // statusWriter records the status for the access log and turns the router's
