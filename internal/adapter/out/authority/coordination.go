@@ -3,7 +3,7 @@ package authority
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"net/url"
@@ -57,7 +57,7 @@ func (g PatientGates) AcquireActivityGuard(ctx context.Context, patientID, opera
 		State       string `json:"state"`
 		Token       string `json:"token"`
 	}
-	key, err := freshKey("acquire")
+	key, err := freshKey()
 	if err != nil {
 		return out.Guard{}, err
 	}
@@ -83,7 +83,7 @@ func (g PatientGates) ResolveGuard(ctx context.Context, guardID, token, outcome 
 		OperationID string `json:"operationId"`
 		State       string `json:"state"`
 	}
-	err := g.Client.post(ctx, "/patient-guards/"+url.PathEscape(guardID)+"/resolutions", "resolve-"+guardID+"-"+outcome,
+	err := g.Client.post(ctx, "/patient-guards/"+url.PathEscape(guardID)+"/resolutions", stableKey("resolve "+guardID+" "+outcome),
 		map[string]string{"token": token, "outcome": outcome}, &v)
 	if errors.Is(err, errOwnerNotFound) {
 		return out.ErrNotFound
@@ -114,7 +114,7 @@ func freezesPath(recordID, consultationID string) string {
 
 func (b Billing) FreezeManualCharges(ctx context.Context, recordID, consultationID, operationID string) (out.ManualChargeSettlement, error) {
 	var v settlement
-	err := b.Client.post(ctx, freezesPath(recordID, consultationID), "freeze-"+operationID, map[string]string{"operationId": operationID}, &v)
+	err := b.Client.post(ctx, freezesPath(recordID, consultationID), stableKey("freeze "+operationID), map[string]string{"operationId": operationID}, &v)
 	if errors.Is(err, errOwnerNotFound) {
 		return out.ManualChargeSettlement{}, fmt.Errorf("encounter account not found: %w", out.ErrUnavailable)
 	}
@@ -135,17 +135,38 @@ func (b Billing) FreezeManualCharges(ctx context.Context, recordID, consultation
 // already released.
 func (b Billing) ReleaseManualChargeFreeze(ctx context.Context, recordID, consultationID, operationID string) error {
 	var v settlement
-	err := b.Client.post(ctx, freezesPath(recordID, consultationID)+"/"+url.PathEscape(operationID)+"/releases", "release-"+operationID, nil, &v)
+	err := b.Client.post(ctx, freezesPath(recordID, consultationID)+"/"+url.PathEscape(operationID)+"/releases", stableKey("release "+operationID), nil, &v)
 	if errors.Is(err, errOwnerNotFound) {
 		return nil
 	}
 	return err
 }
 
-func freshKey(prefix string) (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
+// Idempotency-Key is format uuid in _shared.yaml. freshKey is a random UUID
+// (version 4); stableKey is a name-based UUID (version 5), the same for every
+// retry of one step and different between steps.
+func freshKey() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
 		return "", fmt.Errorf("idempotency key: %v: %w", err, out.ErrUnavailable)
 	}
-	return prefix + "-" + hex.EncodeToString(b), nil
+	return formatUUID(b, 0x40), nil
+}
+
+// keyNamespace is the fixed UUID namespace of Clinical's owner idempotency keys.
+var keyNamespace = [16]byte{0x6c, 0x1d, 0x0b, 0x3e, 0x52, 0x7a, 0x4f, 0x8e, 0x9a, 0x41, 0xc2, 0x5d, 0x3f, 0x60, 0x7b, 0x18}
+
+func stableKey(name string) string {
+	h := sha1.New()
+	h.Write(keyNamespace[:])
+	h.Write([]byte(name))
+	var b [16]byte
+	copy(b[:], h.Sum(nil))
+	return formatUUID(b, 0x50)
+}
+
+func formatUUID(b [16]byte, version byte) string {
+	b[6] = b[6]&0x0f | version
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
