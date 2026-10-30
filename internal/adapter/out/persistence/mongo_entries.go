@@ -151,7 +151,7 @@ func (m *Mongo) GetEntry(ctx context.Context, id string) (model.Entry, error) {
 }
 
 // ListEntries unifies the three collections of a record in one stable order
-// (createdAt desc, _id desc) and counts them in the same aggregation.
+// (createdAt asc, _id asc) and counts them in the same aggregation.
 func (m *Mongo) ListEntries(ctx context.Context, recordID string, offset, limit int) ([]model.Entry, int, error) {
 	match := bson.D{{Key: "$match", Value: bson.D{{Key: "clinicalRecordId", Value: recordID}}}}
 	union := func(coll string, kind model.EntryKind) bson.D {
