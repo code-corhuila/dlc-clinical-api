@@ -43,6 +43,10 @@ type OutboxStore interface {
 	MarkPublished(ctx context.Context, eventID string, at time.Time) error
 	Reschedule(ctx context.Context, eventID string, attempts int, next time.Time, reason string) error
 	MarkFailed(ctx context.Context, eventID string, attempts int, reason string) error
+	// MarkDeclarationFailed marks an undeliverable ClinicalCareCompleted FAILED
+	// and, atomically, its encounter closure CLOSURE_FAILED with the reason
+	// unless it already completed (ADR-014 point 5); a retry resumes both.
+	MarkDeclarationFailed(ctx context.Context, eventID string, attempts int, reason, recordID, consultationID string, at time.Time) error
 }
 
 // Publisher hands an envelope to the broker and returns once it is confirmed.
