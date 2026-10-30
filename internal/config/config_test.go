@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -256,5 +258,35 @@ func TestLoadOwnerCredentials(t *testing.T) {
 	cfg, err = Load(env(qa))
 	if err != nil || cfg.AuthTokenFile != "/run/secrets/AUTH" || cfg.BillingTokenFile != "/run/secrets/BILLING" || cfg.AppointmentsTokenFile != "/run/secrets/APPOINTMENTS" {
 		t.Fatalf("qa with one credential per owner: %+v %v", cfg, err)
+	}
+}
+
+// dlc-infra-mongo hands the runtime password over as a secret file
+// (dlc/<stage>/clinical-mongo/runtime-password); it never goes into MONGO_URI.
+func TestLoadMongoPasswordFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "runtime-password")
+	if err := os.WriteFile(file, []byte("s3cr/t:p@ss\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(env(map[string]string{"MONGO_URI": "mongodb://dlc-mongo:27017/?replicaSet=rs0&tls=true", "MONGO_PASSWORD_FILE": file}))
+	want := "mongodb://clinical_runtime:s3cr%2Ft%3Ap%40ss@dlc-mongo:27017/?replicaSet=rs0&tls=true&authSource=clinical"
+	if err != nil || cfg.MongoURI != want {
+		t.Fatalf("got %q %v", cfg.MongoURI, err)
+	}
+	cfg, err = Load(env(map[string]string{"MONGO_URI": "mongodb://dlc-mongo:27017", "MONGO_PASSWORD_FILE": file, "MONGO_USERNAME": "other", "MONGO_DATABASE": "clinical_qa"}))
+	if err != nil || cfg.MongoURI != "mongodb://other:s3cr%2Ft%3Ap%40ss@dlc-mongo:27017/?authSource=clinical_qa" {
+		t.Fatalf("got %q %v", cfg.MongoURI, err)
+	}
+	empty := filepath.Join(t.TempDir(), "empty")
+	_ = os.WriteFile(empty, []byte("\n"), 0o600)
+	for name, bad := range map[string]map[string]string{
+		"missing file":           {"MONGO_PASSWORD_FILE": filepath.Join(t.TempDir(), "absent")},
+		"empty file":             {"MONGO_PASSWORD_FILE": empty},
+		"credentials in the URI": {"MONGO_URI": "mongodb://u:p@dlc-mongo:27017/", "MONGO_PASSWORD_FILE": file},
+	} {
+		_, err := Load(env(bad))
+		if err == nil || strings.Contains(err.Error(), "s3cr") {
+			t.Fatalf("%s: must be rejected without echoing the secret, got %v", name, err)
+		}
 	}
 }
