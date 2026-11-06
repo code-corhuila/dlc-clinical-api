@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -170,8 +171,7 @@ func TestRevokedSessionIs401AndUnavailableAuthIs503(t *testing.T) {
 	}
 }
 
-// The Auth permission catalogue is not published yet: the claim names that
-// grant clinical access are configuration, resolved here into booleans.
+// Claim-name resolution remains independent of the pending Administrator grant.
 func TestVerifierResolvesTheConfiguredClinicalPermissions(t *testing.T) {
 	v := testVerifier()
 	v.ReadPermission, v.WritePermission = "clinical.history.read", "clinical.history.write"
@@ -199,8 +199,11 @@ func TestApprovedPatientsClaimsCannotBecomeAdministratorClinicalGrants(t *testin
 		t.Fatalf("Patients claims must not grant clinical access: %+v %v", p, err)
 	}
 	c["permissions"] = []string{"clinical:read", "clinical:write"}
-	p, err = v.Verify(signToken(t, map[string]any{"alg": "RS256"}, c, testKey))
-	if err != nil || !p.ClinicalRead || !p.ClinicalWrite {
-		t.Fatalf("approved clinical claims must resolve independently: %+v %v", p, err)
+	token := signToken(t, map[string]any{"alg": "RS256"}, c, testKey)
+	if _, err = v.Verify(token); !errors.Is(err, errInvalidToken) {
+		t.Fatalf("pending Administrator grant must be denied: %v", err)
+	}
+	if rec := do(testRouter(nil, whoami), http.MethodGet, "/api/v1/whoami", token, nil, nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("signed but unapproved Administrator grant returned %d", rec.Code)
 	}
 }
