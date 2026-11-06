@@ -101,6 +101,11 @@ What Clinical needs from each owner to run in `qa`/`main`; everything else is al
 Set `JWT_ISSUER` and `JWT_AUDIENCE` to the exact `IAM_JWT_ISSUER` and
 `IAM_JWT_AUDIENCE` used by Auth for staff access tokens. Clinical checks both
 claims and the current IAM session before authorizing protected operations.
+While the individual Administrator grant authority, audit, expiry and revocation
+policy remains undecided in `dlc-docs`, Clinical rejects an Administrator token
+that asserts `clinical:read` or `clinical:write`, even with a valid IAM signature.
+Dentist access and the Administrator analytics dashboard retain their separate
+owner checks. This denial must be revisited only with the approved grant flow.
 
 ## Layout (Anexo C, Go)
 

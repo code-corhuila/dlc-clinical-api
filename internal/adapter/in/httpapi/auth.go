@@ -47,8 +47,8 @@ type Verifier struct {
 	Issuer   string
 	Audience string
 	Now      func() time.Time
-	// ReadPermission and WritePermission name the claims that grant clinical
-	// access, pending the Auth permission catalogue; empty grants nothing.
+	// ReadPermission and WritePermission are the approved claim names. The
+	// individual Administrator grant workflow is not approved yet.
 	ReadPermission  string
 	WritePermission string
 	// Sessions, when set, asks auth whether the session is still active after
@@ -109,6 +109,13 @@ func (v *Verifier) VerifyContext(ctx context.Context, token string) (Principal, 
 	}
 	var c claims
 	if !decodeSegment(parts[1], &c) {
+		return Principal{}, errInvalidToken
+	}
+	// Until IAM owns an approved grant and revocation workflow, a signed claim
+	// cannot authorize individual Administrator clinical access.
+	if slices.Contains(c.Roles, "ADMINISTRATOR") &&
+		(slices.Contains(c.Permissions, "clinical:read") ||
+			slices.Contains(c.Permissions, "clinical:write")) {
 		return Principal{}, errInvalidToken
 	}
 	now := v.Now()
