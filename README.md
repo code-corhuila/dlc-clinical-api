@@ -98,6 +98,10 @@ What Clinical needs from each owner to run in `qa`/`main`; everything else is al
 | RabbitMQ | A broker and credentials; Clinical declares `clinical.events`, the exchanges it reads and its own queues idempotently | `RABBITMQ_URL` |
 | `dlc-infra-mongo` | The stage engine, `clinical_runtime` and its password file, and the stage CA in qa and main | `MONGO_URI`, `MONGO_PASSWORD_FILE` |
 
+Set `JWT_ISSUER` and `JWT_AUDIENCE` to the exact `IAM_JWT_ISSUER` and
+`IAM_JWT_AUDIENCE` used by Auth for staff access tokens. Clinical checks both
+claims and the current IAM session before authorizing protected operations.
+
 ## Layout (Anexo C, Go)
 
 ```text
