@@ -89,7 +89,7 @@ What Clinical needs from each owner to run in `qa`/`main`; everything else is al
 
 | Owner | Provides | Clinical setting |
 |---|---|---|
-| Auth (`auth-service`) | Public JWKS at `/api/v1/auth/jwks`; access tokens with `iat`, `jti`, `sid`, `roles`, `permissions`; `POST /internal/v1/sessions/validations`; the permission names that grant an Administrator clinical access | `JWT_JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE`, `AUTH_INTERNAL_URL`, `AUTH_SERVICE_TOKEN_FILE`, `CLINICAL_READ_PERMISSION`, `CLINICAL_WRITE_PERMISSION` |
+| Auth (`auth-service`) | Public JWKS at `/api/v1/auth/jwks`; access tokens with `iat`, `jti`, `sid`, `roles`, `permissions`; `POST /internal/v1/sessions/validations`; approved `clinical:read` and `clinical:write` names for individually authorized Administrators | `JWT_JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE`, `AUTH_INTERNAL_URL`, `AUTH_SERVICE_TOKEN_FILE`, `CLINICAL_READ_PERMISSION`, `CLINICAL_WRITE_PERMISSION` |
 | Patients | `/internal/v1/patients/{id}/validation` | `PATIENTS_INTERNAL_URL`, `PATIENTS_SERVICE_TOKEN_FILE` |
 | Appointments | Assignments, assigned-patient list, encounter status and the patient gate of `internal-coordination.yaml`; `Appointment*` events | `APPOINTMENTS_INTERNAL_URL`, `APPOINTMENTS_SERVICE_TOKEN_FILE` |
 | Billing | Manual-charge freeze and release; `EncounterChargesCompleted` and `PaymentRecorded` events | `BILLING_INTERNAL_URL`, `BILLING_SERVICE_TOKEN_FILE` |

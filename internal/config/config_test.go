@@ -229,12 +229,18 @@ func TestLoadClinicalPermissionNames(t *testing.T) {
 	if err != nil || cfg.ClinicalReadPermission != "clinical:read" || cfg.ClinicalWritePermission != "clinical:write" {
 		t.Fatalf("defaults: %+v %v", cfg, err)
 	}
-	cfg, err = Load(env(map[string]string{"CLINICAL_READ_PERMISSION": "clinical.read", "CLINICAL_WRITE_PERMISSION": "clinical.write"}))
-	if err != nil || cfg.ClinicalReadPermission != "clinical.read" || cfg.ClinicalWritePermission != "clinical.write" {
-		t.Fatalf("overrides: %+v %v", cfg, err)
+	cfg, err = Load(env(map[string]string{"CLINICAL_READ_PERMISSION": "clinical:read", "CLINICAL_WRITE_PERMISSION": "clinical:write"}))
+	if err != nil || cfg.ClinicalReadPermission != "clinical:read" || cfg.ClinicalWritePermission != "clinical:write" {
+		t.Fatalf("approved names: %+v %v", cfg, err)
 	}
-	if _, err := Load(env(map[string]string{"CLINICAL_WRITE_PERMISSION": ""})); err == nil {
-		t.Fatal("an empty permission name must be rejected")
+	for _, invalid := range []map[string]string{
+		{"CLINICAL_READ_PERMISSION": "patients:read"},
+		{"CLINICAL_WRITE_PERMISSION": "patients:write"},
+		{"CLINICAL_READ_PERMISSION": ""},
+	} {
+		if _, err := Load(env(invalid)); err == nil {
+			t.Fatalf("unapproved permission name must be rejected: %v", invalid)
+		}
 	}
 }
 
