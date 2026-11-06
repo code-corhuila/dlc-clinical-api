@@ -187,3 +187,20 @@ func TestVerifierResolvesTheConfiguredClinicalPermissions(t *testing.T) {
 		t.Fatalf("unconfigured names must not grant access: %+v", p)
 	}
 }
+
+func TestApprovedPatientsClaimsCannotBecomeAdministratorClinicalGrants(t *testing.T) {
+	v := testVerifier()
+	v.ReadPermission, v.WritePermission = "clinical:read", "clinical:write"
+	c := validClaims()
+	c["roles"] = []string{"ADMINISTRATOR"}
+	c["permissions"] = []string{"patients:read", "patients:register", "patients:write"}
+	p, err := v.Verify(signToken(t, map[string]any{"alg": "RS256"}, c, testKey))
+	if err != nil || p.ClinicalRead || p.ClinicalWrite {
+		t.Fatalf("Patients claims must not grant clinical access: %+v %v", p, err)
+	}
+	c["permissions"] = []string{"clinical:read", "clinical:write"}
+	p, err = v.Verify(signToken(t, map[string]any{"alg": "RS256"}, c, testKey))
+	if err != nil || !p.ClinicalRead || !p.ClinicalWrite {
+		t.Fatalf("approved clinical claims must resolve independently: %+v %v", p, err)
+	}
+}
