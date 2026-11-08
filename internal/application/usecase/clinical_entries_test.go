@@ -77,8 +77,8 @@ func setupEntries(t *testing.T) entryFixture {
 	ef := entryFixture{fixture: f, entries: e}
 	ef.encounters = &fakeEncounters{closed: map[string]bool{}}
 	ef.svc = &EntryService{Records: f.repo, Entries: e, Closures: ef.encounters, Care: f.care, Patients: f.patients, Guard: f.svc.Guard, Clock: f.svc.Clock, IDs: f.svc.IDs}
-	r1, err := open(f, admin, "pat-1", "rec-key-1", "h")
-	r3, err3 := open(f, admin, "pat-3", "rec-key-3", "h")
+	r1, err := open(f, seeder, "pat-1", "rec-key-1", "h")
+	r3, err3 := open(f, seeder, "pat-3", "rec-key-3", "h")
 	if err != nil || err3 != nil {
 		t.Fatal(err, err3)
 	}
@@ -135,7 +135,7 @@ func TestConsultationAndDiagnosisPublishEvents(t *testing.T) {
 
 func TestDiagnosisRequiresConsultationOfSameRecord(t *testing.T) {
 	ef := setupEntries(t)
-	foreign, _ := ef.record(admin, ef.rec3, model.KindConsultation, "k-cons-03")
+	foreign, _ := ef.record(seeder, ef.rec3, model.KindConsultation, "k-cons-03")
 	for name, id := range map[string]string{"other record": foreign.Entry.ID, "missing": "nope"} {
 		t.Run(name, func(t *testing.T) {
 			_, err := ef.record(dentist, ef.rec1, model.KindDiagnosis, "k-diag-"+name, func(c *in.RecordEntryCommand) { c.ConsultationID = id })
@@ -153,10 +153,11 @@ func TestRecordEntryAccessRules(t *testing.T) {
 		prep  func(entryFixture)
 		want  model.Kind
 	}{
-		"assistant":          {assistant, func(ef entryFixture) string { return ef.rec1 }, nil, model.KindForbidden},
-		"unassigned dentist": {dentist, func(ef entryFixture) string { return ef.rec3 }, nil, model.KindNotFound},
-		"missing record":     {dentist, func(entryFixture) string { return "nope" }, nil, model.KindNotFound},
-		"inactive patient":   {dentist, func(ef entryFixture) string { return ef.rec1 }, func(ef entryFixture) { ef.patients.inactive["pat-1"] = true }, model.KindRule},
+		"assistant":               {assistant, func(ef entryFixture) string { return ef.rec1 }, nil, model.KindForbidden},
+		"unassigned dentist":      {dentist, func(ef entryFixture) string { return ef.rec3 }, nil, model.KindNotFound},
+		"missing record":          {dentist, func(entryFixture) string { return "nope" }, nil, model.KindNotFound},
+		"inactive patient":        {dentist, func(ef entryFixture) string { return ef.rec1 }, func(ef entryFixture) { ef.patients.inactive["pat-1"] = true }, model.KindRule},
+		"administrator (ADR-019)": {admin, func(ef entryFixture) string { return ef.rec1 }, nil, model.KindForbidden},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

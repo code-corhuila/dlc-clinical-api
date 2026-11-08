@@ -9,6 +9,11 @@ tagged `v<version>` after the merge. Nothing is merged between permanent branche
 
 ## [Unreleased]
 
+### Changed
+
+- ADR-019: an Administrator with `clinical:read` reads clinical data clinic-wide and is denied every professional write
+  (`403`), even when the token carries `clinical:write`. Dentists keep the assignment rules.
+
 MVP 3: the Clinical API implements every operation of `clinical-service.yaml` for HU-CLN-001, HU-CLN-002 and HU-XCT-001, with
 the ADR-014/ADR-015 closure model and the ADR-017 write protocol, and the HU-CLN-003 analytics dashboard (ADR-006). It runs
 as five processes from one image.

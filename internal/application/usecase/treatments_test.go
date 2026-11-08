@@ -149,8 +149,8 @@ func TestPlanTreatmentRules(t *testing.T) {
 
 func TestPlanTreatmentDiagnosisMustBeADiagnosisOfTheRecord(t *testing.T) {
 	tf := setupTreatments(t)
-	foreignCons, _ := tf.record(admin, tf.rec3, model.KindConsultation, "t-fc-01")
-	foreign, _ := tf.record(admin, tf.rec3, model.KindDiagnosis, "t-fd-01", func(c *in.RecordEntryCommand) { c.ConsultationID = foreignCons.Entry.ID })
+	foreignCons, _ := tf.record(seeder, tf.rec3, model.KindConsultation, "t-fc-01")
+	foreign, _ := tf.record(seeder, tf.rec3, model.KindDiagnosis, "t-fd-01", func(c *in.RecordEntryCommand) { c.ConsultationID = foreignCons.Entry.ID })
 	evo, _ := tf.record(dentist, tf.rec1, model.KindEvolution, "t-evo-01")
 	for name, id := range map[string]string{"other record": foreign.Entry.ID, "not a diagnosis": evo.Entry.ID} {
 		t.Run(name, func(t *testing.T) {
@@ -209,9 +209,9 @@ func TestStartTreatment(t *testing.T) {
 func TestListAndGetTreatmentsAreScoped(t *testing.T) {
 	tf := setupTreatments(t)
 	mine, _ := tf.plan(dentist, "pat-1", "k-mine-01")
-	foreignCons, _ := tf.record(admin, tf.rec3, model.KindConsultation, "t-fc-02")
-	foreignDiag, _ := tf.record(admin, tf.rec3, model.KindDiagnosis, "t-fd-02", func(c *in.RecordEntryCommand) { c.ConsultationID = foreignCons.Entry.ID })
-	foreign, err := tf.plan(admin, "pat-3", "k-foreign-01", func(c *in.PlanTreatmentCommand) { c.DiagnosisID = foreignDiag.Entry.ID })
+	foreignCons, _ := tf.record(seeder, tf.rec3, model.KindConsultation, "t-fc-02")
+	foreignDiag, _ := tf.record(seeder, tf.rec3, model.KindDiagnosis, "t-fd-02", func(c *in.RecordEntryCommand) { c.ConsultationID = foreignCons.Entry.ID })
+	foreign, err := tf.plan(seeder, "pat-3", "k-foreign-01", func(c *in.PlanTreatmentCommand) { c.DiagnosisID = foreignDiag.Entry.ID })
 	if err != nil {
 		t.Fatal(err)
 	}
