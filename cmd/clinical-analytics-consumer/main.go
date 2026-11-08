@@ -28,6 +28,10 @@ var sources = []messaging.Binding{
 	{Exchange: "appointments.events", RoutingKey: "AppointmentCompleted"},
 	{Exchange: "billing.events", RoutingKey: "PaymentRecorded"},
 	{Exchange: "clinical.events", RoutingKey: "ClinicalCareCompleted"},
+	// Catalogued Analytics facts without an approved indicator yet: bound so the
+	// mandatory relay can route them; the projector acknowledges and ignores them.
+	{Exchange: "clinical.events", RoutingKey: "DiagnosisRecorded"},
+	{Exchange: "clinical.events", RoutingKey: "TreatmentPlanned"},
 }
 
 func main() {
