@@ -39,16 +39,11 @@ func unavailable(what string, err error) error {
 	return fmt.Errorf("%s: %v: %w", what, err, out.ErrUnavailable)
 }
 
-// clinicalAdmin reports whether the actor is an Administrator holding the
-// clinical permission for the requested access.
+// clinicalAdmin reports whether the actor is an Administrator holding
+// clinical:read. ADR-019: the Administrator reads clinic-wide but never
+// performs a professional write, whatever the token carries.
 func clinicalAdmin(a in.Actor, mode access) bool {
-	if !slices.Contains(a.Roles, RoleAdministrator) {
-		return false
-	}
-	if mode == accessWrite {
-		return a.ClinicalWrite
-	}
-	return a.ClinicalRead
+	return mode == accessRead && slices.Contains(a.Roles, RoleAdministrator) && a.ClinicalRead
 }
 
 // mayUseClinical rejects actors whose role can never touch clinical data;

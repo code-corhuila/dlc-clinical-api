@@ -45,7 +45,8 @@ type Config struct {
 	BillingTokenFile      string
 	InternalTimeout       time.Duration  // bound of each owner call
 	ClinicTimezone        *time.Location // calendar of the HU-CLN-003 dashboard
-	// Approved Auth permission names for individual Administrator clinical grants.
+	// Approved Auth permission names (ADR-019): clinical:read lets an Administrator
+	// read clinic-wide; no permission lets an Administrator write.
 	ClinicalReadPermission  string
 	ClinicalWritePermission string
 }

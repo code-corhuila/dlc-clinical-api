@@ -118,6 +118,9 @@ var (
 	assistant = in.Actor{ID: "assistant-1", Roles: []string{RoleAssistant}}
 	admin     = in.Actor{ID: "admin-1", Roles: []string{RoleAdministrator}, ClinicalRead: true, ClinicalWrite: true}
 	plainAdm  = in.Actor{ID: "admin-2", Roles: []string{RoleAdministrator}}
+	// seeder is a dentist assigned to every fixture patient; it writes the
+	// data that read tests need, since an Administrator never writes (ADR-019).
+	seeder = in.Actor{ID: "dentist-9", Roles: []string{RoleDentist}}
 )
 
 type fixture struct {
@@ -136,7 +139,7 @@ func (f fixture) guard() *GuardedWrites {
 func setup() fixture {
 	f := fixture{
 		repo:     newRepo(),
-		care:     &fakeCare{assigned: map[string][]string{"dentist-1": {"pat-1", "pat-2"}}},
+		care:     &fakeCare{assigned: map[string][]string{"dentist-1": {"pat-1", "pat-2"}, "dentist-9": {"pat-1", "pat-2", "pat-3", "pat-9"}}},
 		patients: &fakePatients{inactive: map[string]bool{}},
 	}
 	f.coord = newCoordination()
@@ -224,10 +227,15 @@ func TestOpenRecordRules(t *testing.T) {
 	}
 }
 
-func TestAuthorizedAdministratorMayOpen(t *testing.T) {
+// ADR-019: an Administrator reads with clinical:read but never performs a
+// professional write, even when a token carries clinical:write.
+func TestAdministratorNeverWrites(t *testing.T) {
 	f := setup()
-	if _, err := open(f, admin, "pat-9", "key-00001", "h1"); err != nil {
-		t.Fatalf("clinically authorized administrator must open: %v", err)
+	if _, err := open(f, admin, "pat-9", "key-00001", "h1"); kindOf(t, err) != model.KindForbidden {
+		t.Fatalf("an administrator must not open a record, got %v", err)
+	}
+	if len(f.repo.records) != 0 {
+		t.Fatal("a denied write must not persist")
 	}
 }
 
@@ -255,7 +263,7 @@ func TestReplayRechecksAuthorization(t *testing.T) {
 
 func seed(f fixture) {
 	for i, p := range []string{"pat-1", "pat-2", "pat-3"} {
-		_, _ = open(f, admin, p, fmt.Sprintf("seed-key-%d", i), "h")
+		_, _ = open(f, seeder, p, fmt.Sprintf("seed-key-%d", i), "h")
 	}
 }
 
