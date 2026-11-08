@@ -9,6 +9,11 @@ tagged `v<version>` after the merge. Nothing is merged between permanent branche
 
 ## [Unreleased]
 
+### Fixed
+
+- The analytics consumer binds `DiagnosisRecorded` and `TreatmentPlanned` (event catalog consumer: Analytics). Without a bound queue
+  the mandatory relay retried them until `FAILED`; the projector acknowledges them without changing indicators.
+
 ### Changed
 
 - ADR-019: an Administrator with `clinical:read` reads clinical data clinic-wide and is denied every professional write
