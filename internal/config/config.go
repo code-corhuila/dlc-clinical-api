@@ -45,8 +45,8 @@ type Config struct {
 	BillingTokenFile      string
 	InternalTimeout       time.Duration  // bound of each owner call
 	ClinicTimezone        *time.Location // calendar of the HU-CLN-003 dashboard
-	// Token permissions that grant an Administrator clinical access (PAT-003),
-	// pending the Auth permission catalogue.
+	// Approved Auth permission names (ADR-019): clinical:read lets an Administrator
+	// read clinic-wide; no permission lets an Administrator write.
 	ClinicalReadPermission  string
 	ClinicalWritePermission string
 }
@@ -113,10 +113,9 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	cfg.ClinicalReadPermission, cfg.ClinicalWritePermission = "clinical:read", "clinical:write"
 	for key, target := range map[string]*string{"CLINICAL_READ_PERMISSION": &cfg.ClinicalReadPermission, "CLINICAL_WRITE_PERMISSION": &cfg.ClinicalWritePermission} {
 		if v, ok := lookup(key); ok {
-			if v == "" {
-				return Config{}, fmt.Errorf("%s must not be empty", key)
+			if v != *target {
+				return Config{}, fmt.Errorf("%s must be %q", key, *target)
 			}
-			*target = v
 		}
 	}
 	loc, err := loadClinicTimezone(lookup)
