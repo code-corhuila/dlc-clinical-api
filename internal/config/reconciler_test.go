@@ -26,7 +26,7 @@ func TestLoadReconcilerDeclaresEveryLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Reconciler{MongoURI: "mongodb://db:27017/?replicaSet=rs0", MongoDatabase: "clinical", MongoMaxPoolSize: 10, MongoTimeout: 5 * time.Second,
-		AppointmentsURL: "http://appointments:8080", BillingURL: "http://billing:8080", ServiceToken: "svc", InternalTimeout: 3 * time.Second,
+		AppointmentsURL: "http://appointments:8080", BillingURL: "http://billing:8080", ServiceToken: "svc", ServiceClientID: "clinical-api", InternalTimeout: 3 * time.Second,
 		Interval: 30 * time.Second, RunTimeout: 30 * time.Second, MinAge: 2 * time.Minute, BatchSize: 50, ShutdownTimeout: 20 * time.Second}
 	if cfg != want {
 		t.Fatalf("got %+v\nwant %+v", cfg, want)

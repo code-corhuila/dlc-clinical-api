@@ -19,12 +19,16 @@ type Reconciler struct {
 	// Owner credentials (authentication.md); each falls back to the shared one.
 	AppointmentsTokenFile string
 	BillingTokenFile      string
-	InternalTimeout       time.Duration
-	Interval              time.Duration
-	RunTimeout            time.Duration
-	MinAge                time.Duration // keeps runs away from requests still in flight
-	BatchSize             int
-	ShutdownTimeout       time.Duration
+	// ADR-020: IAM-issued tokens when the secret file is set.
+	AuthURL                 string
+	ServiceClientID         string
+	ServiceClientSecretFile string
+	InternalTimeout         time.Duration
+	Interval                time.Duration
+	RunTimeout              time.Duration
+	MinAge                  time.Duration // keeps runs away from requests still in flight
+	BatchSize               int
+	ShutdownTimeout         time.Duration
 }
 
 // LoadReconciler builds the reconciler configuration from lookup (os.LookupEnv).
@@ -42,6 +46,7 @@ func LoadReconciler(lookup func(string) (string, bool)) (Reconciler, error) {
 	r := Reconciler{MongoURI: base.MongoURI, MongoDatabase: base.MongoDatabase, MongoMaxPoolSize: base.MongoMaxPoolSize, MongoTimeout: base.MongoTimeout,
 		AppointmentsURL: base.AppointmentsURL, BillingURL: base.BillingURL, ServiceToken: base.ServiceToken, ServiceTokenFile: base.ServiceTokenFile,
 		AppointmentsTokenFile: base.AppointmentsTokenFile, BillingTokenFile: base.BillingTokenFile,
+		AuthURL: base.AuthURL, ServiceClientID: base.ServiceClientID, ServiceClientSecretFile: base.ServiceClientSecretFile,
 		InternalTimeout: base.InternalTimeout}
 	for _, d := range []struct {
 		key    string

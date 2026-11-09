@@ -176,22 +176,23 @@ func owners(cfg config.Config) (ownerSet, error) {
 	if cfg.AuthURL == "" && cfg.PatientsURL == "" && cfg.AppointmentsURL == "" && cfg.BillingURL == "" {
 		return set, nil
 	}
-	client := func(base, ownFile string) *authority.Client {
-		return authority.NewClient(base, authority.CredentialFor(ownFile, cfg.ServiceTokenFile, cfg.ServiceToken), cfg.InternalTimeout)
+	client := func(base, audience, ownFile string) *authority.Client {
+		return authority.NewClient(base, authority.OwnerCredential(cfg.AuthURL, cfg.ServiceClientID, cfg.ServiceClientSecretFile,
+			audience, ownFile, cfg.ServiceTokenFile, cfg.ServiceToken, cfg.InternalTimeout), cfg.InternalTimeout)
 	}
 	if cfg.AppointmentsURL != "" {
-		apts := authority.Appointments{Client: client(cfg.AppointmentsURL, cfg.AppointmentsTokenFile)}
+		apts := authority.Appointments{Client: client(cfg.AppointmentsURL, "appointments-api", cfg.AppointmentsTokenFile)}
 		set.care, set.appointments = apts, apts
 		set.gate = authority.PatientGates{Client: apts.Client}
 	}
 	if cfg.PatientsURL != "" {
-		set.patients = authority.Patients{Client: client(cfg.PatientsURL, cfg.PatientsTokenFile)}
+		set.patients = authority.Patients{Client: client(cfg.PatientsURL, "patients-api", cfg.PatientsTokenFile)}
 	}
 	if cfg.BillingURL != "" {
-		set.billing = authority.Billing{Client: client(cfg.BillingURL, cfg.BillingTokenFile)}
+		set.billing = authority.Billing{Client: client(cfg.BillingURL, "billing-api", cfg.BillingTokenFile)}
 	}
 	if cfg.AuthURL != "" {
-		set.sessions = authority.Sessions{Client: client(cfg.AuthURL, cfg.AuthTokenFile)}
+		set.sessions = authority.Sessions{Client: client(cfg.AuthURL, "auth-service", cfg.AuthTokenFile)}
 	}
 	return set, nil
 }
