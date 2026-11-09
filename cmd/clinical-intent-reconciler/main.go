@@ -45,8 +45,8 @@ func run(logger *slog.Logger) error {
 
 	reconciler := &usecase.ReconcileService{
 		Intents: store, Admissions: store,
-		Gate:    authority.PatientGates{Client: authority.NewClient(cfg.AppointmentsURL, authority.CredentialFor(cfg.AppointmentsTokenFile, cfg.ServiceTokenFile, cfg.ServiceToken), cfg.InternalTimeout)},
-		Billing: authority.Billing{Client: authority.NewClient(cfg.BillingURL, authority.CredentialFor(cfg.BillingTokenFile, cfg.ServiceTokenFile, cfg.ServiceToken), cfg.InternalTimeout)},
+		Gate:    authority.PatientGates{Client: authority.NewClient(cfg.AppointmentsURL, authority.OwnerCredential(cfg.AuthURL, cfg.ServiceClientID, cfg.ServiceClientSecretFile, "appointments-api", cfg.AppointmentsTokenFile, cfg.ServiceTokenFile, cfg.ServiceToken, cfg.InternalTimeout), cfg.InternalTimeout)},
+		Billing: authority.Billing{Client: authority.NewClient(cfg.BillingURL, authority.OwnerCredential(cfg.AuthURL, cfg.ServiceClientID, cfg.ServiceClientSecretFile, "billing-api", cfg.BillingTokenFile, cfg.ServiceTokenFile, cfg.ServiceToken, cfg.InternalTimeout), cfg.InternalTimeout)},
 		Clock:   system.Clock{}, MinAge: cfg.MinAge, BatchSize: cfg.BatchSize,
 	}
 	logger.Info("clinical-intent-reconciler started", "interval", cfg.Interval.String(), "minAge", cfg.MinAge.String(), "batchSize", cfg.BatchSize)
