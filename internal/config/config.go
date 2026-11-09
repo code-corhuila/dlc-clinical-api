@@ -43,8 +43,11 @@ type Config struct {
 	PatientsTokenFile     string
 	AppointmentsTokenFile string
 	BillingTokenFile      string
-	InternalTimeout       time.Duration  // bound of each owner call
-	ClinicTimezone        *time.Location // calendar of the HU-CLN-003 dashboard
+	// ADR-020: with a secret file, IAM (AUTH_INTERNAL_URL) issues every owner token.
+	ServiceClientID         string
+	ServiceClientSecretFile string
+	InternalTimeout         time.Duration  // bound of each owner call
+	ClinicTimezone          *time.Location // calendar of the HU-CLN-003 dashboard
 	// Approved Auth permission names (ADR-019): clinical:read lets an Administrator
 	// read clinic-wide; no permission lets an Administrator write.
 	ClinicalReadPermission  string
@@ -140,7 +143,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		}
 		for key, file := range map[string]string{"AUTH_SERVICE_TOKEN_FILE": cfg.AuthTokenFile, "PATIENTS_SERVICE_TOKEN_FILE": cfg.PatientsTokenFile,
 			"APPOINTMENTS_SERVICE_TOKEN_FILE": cfg.AppointmentsTokenFile, "BILLING_SERVICE_TOKEN_FILE": cfg.BillingTokenFile} {
-			if file == "" {
+			if file == "" && cfg.ServiceClientSecretFile == "" {
 				return Config{}, fmt.Errorf("%s is required in %s: each owner has its own service credential", key, cfg.AppEnv)
 			}
 		}
@@ -266,6 +269,10 @@ func loadOwners(lookup func(string) (string, bool), cfg *Config) error {
 	cfg.PatientsTokenFile, _ = lookup("PATIENTS_SERVICE_TOKEN_FILE")
 	cfg.AppointmentsTokenFile, _ = lookup("APPOINTMENTS_SERVICE_TOKEN_FILE")
 	cfg.BillingTokenFile, _ = lookup("BILLING_SERVICE_TOKEN_FILE")
+	cfg.ServiceClientSecretFile, _ = lookup("SERVICE_CLIENT_SECRET_FILE")
+	if cfg.ServiceClientID, _ = lookup("SERVICE_CLIENT_ID"); cfg.ServiceClientID == "" {
+		cfg.ServiceClientID = "clinical-api"
+	}
 	timeout, err := positiveDuration(lookup, "INTERNAL_TIMEOUT", 3*time.Second)
 	if err != nil {
 		return err
@@ -274,7 +281,10 @@ func loadOwners(lookup func(string) (string, bool), cfg *Config) error {
 	if cfg.ServiceToken != "" && cfg.ServiceTokenFile != "" {
 		return fmt.Errorf("set at most one of SERVICE_TOKEN or SERVICE_TOKEN_FILE")
 	}
-	shared := cfg.ServiceToken != "" || cfg.ServiceTokenFile != ""
+	if cfg.ServiceClientSecretFile != "" && cfg.AuthURL == "" {
+		return fmt.Errorf("SERVICE_CLIENT_SECRET_FILE needs AUTH_INTERNAL_URL: IAM issues the service tokens")
+	}
+	shared := cfg.ServiceToken != "" || cfg.ServiceTokenFile != "" || cfg.ServiceClientSecretFile != ""
 	for _, o := range []struct{ name, url, file string }{{"AUTH", cfg.AuthURL, cfg.AuthTokenFile}, {"PATIENTS", cfg.PatientsURL, cfg.PatientsTokenFile},
 		{"APPOINTMENTS", cfg.AppointmentsURL, cfg.AppointmentsTokenFile}, {"BILLING", cfg.BillingURL, cfg.BillingTokenFile}} {
 		if o.url != "" && o.file == "" && !shared {
