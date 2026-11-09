@@ -42,6 +42,7 @@ func TestLoadAppliesDeclaredLimitsWhenUnset(t *testing.T) {
 		MongoDatabase:           "clinical",
 		MongoMaxPoolSize:        10,
 		MongoTimeout:            5 * time.Second,
+		ServiceClientID:         "clinical-api",
 		InternalTimeout:         3 * time.Second,
 		ClinicalReadPermission:  "clinical:read",
 		ClinicalWritePermission: "clinical:write",
@@ -294,5 +295,23 @@ func TestLoadMongoPasswordFile(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), "s3cr") {
 			t.Fatalf("%s: must be rejected without echoing the secret, got %v", name, err)
 		}
+	}
+}
+
+// ADR-020: with a service client secret, IAM issues the tokens, so no token file is required.
+func TestLoadAcceptsAnIAMServiceClientInsteadOfTokenFiles(t *testing.T) {
+	qa := map[string]string{"APP_ENV": "qa", "AUTH_INTERNAL_URL": "http://auth", "JWT_PUBLIC_KEY": "", "JWT_JWKS_URL": "http://auth/jwks",
+		"PATIENTS_INTERNAL_URL": "http://p", "APPOINTMENTS_INTERNAL_URL": "http://a", "BILLING_INTERNAL_URL": "http://b",
+		"SERVICE_CLIENT_SECRET_FILE": "/run/secrets/client-secret"}
+	cfg, err := Load(env(qa))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ServiceClientID != "clinical-api" || cfg.ServiceClientSecretFile != "/run/secrets/client-secret" {
+		t.Fatalf("service client = %q, %q", cfg.ServiceClientID, cfg.ServiceClientSecretFile)
+	}
+	dev := map[string]string{"PATIENTS_INTERNAL_URL": "http://p", "SERVICE_CLIENT_SECRET_FILE": "/run/secrets/client-secret"}
+	if _, err := Load(env(dev)); err == nil || !strings.Contains(err.Error(), "AUTH_INTERNAL_URL") {
+		t.Fatalf("a service client without the IAM origin was accepted: %v", err)
 	}
 }
