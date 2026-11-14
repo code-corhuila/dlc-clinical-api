@@ -9,6 +9,8 @@ tagged `v<version>` after the merge. Nothing is merged between permanent branche
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-14
+
 ### Fixed
 
 - The analytics consumer binds `DiagnosisRecorded` and `TreatmentPlanned` (event catalog consumer: Analytics). Without a bound queue
