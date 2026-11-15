@@ -1,0 +1,49 @@
+# Clinical API, its outbox relay, its inbox consumer, its intent reconciler and its analytics consumer. The shared MongoDB instance belongs to dlc-infra-mongo and the
+# Clinical schema to dlc-clinical-db; this file never defines a database or volume.
+# Secrets (JWT key, one service credential per owner) are files in CLINICAL_SECRETS_DIR, mounted read-only at
+# /run/secrets/clinical; .env points the *_FILE variables there. Every process refuses to start without the migrated
+# schema or, in qa and main, without its owners: the restart policy retries until they are ready.
+name: dlc-clinical-api
+x-clinical: &clinical
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  env_file: ../.env
+  restart: unless-stopped
+  volumes:
+    - ${CLINICAL_SECRETS_DIR:?CLINICAL_SECRETS_DIR is required}:/run/secrets/clinical:ro
+  networks: [platform, clinical-data]
+services:
+  clinical-api:
+    <<: *clinical
+    expose: ["8080"]
+    healthcheck:
+      test: ["CMD", "/clinical-api", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+  # Publishes committed outbox events (Norma 5.3.11): same image, separate process.
+  clinical-outbox-relay:
+    <<: *clinical
+    entrypoint: ["/clinical-outbox-relay"]
+  # Applies AppointmentCompleted and EncounterChargesCompleted to the encounter closure.
+  clinical-inbox-consumer:
+    <<: *clinical
+    entrypoint: ["/clinical-inbox-consumer"]
+  # Settles write intents left PENDING by a lost owner answer or a crash (ADR-017).
+  clinical-intent-reconciler:
+    <<: *clinical
+    entrypoint: ["/clinical-intent-reconciler"]
+  # Keeps the HU-CLN-003 analytics projections on its own queue (clinical.analytics).
+  clinical-analytics-consumer:
+    <<: *clinical
+    entrypoint: ["/clinical-analytics-consumer"]
+networks:
+  platform:
+    name: ${PLATFORM_NETWORK_NAME:-platform}
+    external: true
+  # MongoDB (dlc-infra-mongo) is reachable only on this network; other contexts never join it.
+  clinical-data:
+    name: ${CLINICAL_DATA_NETWORK_NAME:-clinical-data}
+    external: true
